@@ -1,9 +1,21 @@
 /*
  * MHI KLIMAATREGELING VIA SENSIBO CLOUD
- * V14.1 - PREDICTIVE CONTROL MET COMFORT BOOST
+ * V14.2 - MODULEREND VERWARMEN
  *
  * Homey Flow: iedere 1 minuut uitvoeren.
  * Predictive sample en Insights: iedere 5 minuten.
+ *
+ * V14.2 wijzigingen (alleen verwarmen):
+ * - Modulerend verwarmen: waar v14.1 op 21,0 °C uitschakelde, zakt het
+ *   setpoint nu stapsgewijs (22 → 21 → 20). Zo kan de inverter op laag
+ *   vermogen doordraaien; uitschakelen pas boven 21,5 °C.
+ * - Minimale uit-tijd van 20 minuten na het bereiken van het verwarmingsdoel
+ *   (behalve als het echt te koud wordt).
+ * - Rustigere ventilator: bredere grenzen met hysterese en minimaal
+ *   10 minuten tussen wisselingen (behalve bij een groot tekort).
+ * - Afwezigheidsvertraging: pas na 20 minuten niemand thuis naar AWAY.
+ * - Timeline alleen bij aan/uit en moduswissels; setpoint- en fanbijsturing
+ *   staan alleen in het log.
  *
  * V14.1 wijziging:
  * - aparte verwarmingsfanregeling relatief aan de effectieve comforttemperatuur
@@ -65,7 +77,7 @@ const CFG = {
     wakeProtectionMinutes: 60,
     comfort: 20.7,
     heatStart: 20.5,
-    heatStop: 21.0,
+    heatStop: 21.5,
     heatTarget: 22,
     coolStart: 24.0,
     coolStop: 22.5,
@@ -104,6 +116,38 @@ const CFG = {
 
   doorMinutes: 5,
 
+  /* V14.2: pas na zoveel minuten niemand thuis de afwezigheidsregeling. */
+  awayDelayMinutes: 20,
+
+  /*
+   * V14.2: modulerend verwarmen.
+   * Het setpoint zakt pas waar v14.1 de airco uitzette; in de normale band
+   * verandert er niets. Grenzen ten opzichte van comfort (c), overdag 20,7:
+   * - onder c + 0,3 (21,0)  → vol setpoint (heatTarget, overdag 22)
+   * - tot c + 0,5   (21,2)  → midden (overdag 21)
+   * - vanaf c + 0,5         → laag   (overdag 20)
+   * - boven heatStop (21,5) → uit
+   * Terug omhoog pas 0,2 °C onder een grens (hysterese).
+   * Alleen actief als heatTarget ruim boven comfort ligt (dus niet 's nachts).
+   */
+  modulation: {
+    enabled: true,
+    fullBelowDelta: 0.3,
+    lowFromDelta: 0.5,
+    hysteresis: 0.2,
+    stepDownMinutes: 15,
+    minimumGap: 0.5
+  },
+
+  /* V14.2: geen timeline-melding als alleen setpoint en/of fan wijzigt (wel in het log). */
+  timelineQuietAdjustments: true,
+
+  heatingCycle: {
+    minimumOffMinutes: 20,
+    /* Binnen de minimale uit-tijd toch starten onder heatStart - dit. */
+    emergencyMargin: 0.5
+  },
+
   awayHeating: {
     enabled: true,
     coldOutdoorThreshold: 5,
@@ -132,8 +176,11 @@ const CFG = {
      * Dag 20,7 C: medium t/m 20,5; low rond 20,6; quiet vanaf 20,7.
      */
     heating: {
-      mediumDelta: 0.2,
-      lowDelta: 0.1
+      mediumDelta: 0.4,
+      lowDelta: 0.15,
+      hysteresis: 0.1,
+      minimumChangeMinutes: 10,
+      urgentDeficit: 0.5
     },
 
     reduceDelayMinutes: 15,
@@ -259,10 +306,13 @@ function determineProfile(sleeping) {
 
 function defaultClimateState() {
   return {
-    version: 14.1,
+    version: 14.2,
     lastProfile: null,
     doorOpenSince: null,
     lastFanChange: null,
+    lastSetpointChange: null,
+    lastHeatStop: null,
+    awaySince: null,
     coolingStarted: null,
     antiMoldUntil: null,
     temperatureHistory: [],
@@ -277,6 +327,9 @@ function normalizeClimateState(input) {
   state.lastProfile = ["DAY", "NIGHT"].includes(input.lastProfile) ? input.lastProfile : null;
   state.doorOpenSince = finiteTimestamp(input.doorOpenSince);
   state.lastFanChange = finiteTimestamp(input.lastFanChange);
+  state.lastSetpointChange = finiteTimestamp(input.lastSetpointChange);
+  state.lastHeatStop = finiteTimestamp(input.lastHeatStop);
+  state.awaySince = finiteTimestamp(input.awaySince);
   state.coolingStarted = finiteTimestamp(input.coolingStarted);
   state.antiMoldUntil = finiteTimestamp(input.antiMoldUntil);
   state.smoothedTrendPerHour = Number.isFinite(Number(input.smoothedTrendPerHour)) ? Number(input.smoothedTrendPerHour) : null;
@@ -473,12 +526,70 @@ function wantedFan(delta) {
  * Verwarmingsregeling ten opzichte van effectieve comforttemperatuur.
  * Door een kleine epsilon blijven decimalen als 20,5 betrouwbaar op de grens.
  */
-function wantedHeatingFan(roomTemperature, profile) {
+function wantedHeatingFan(roomTemperature, profile, currentFan) {
+  const h = CFG.fan.heating;
   const deficit = Math.max(0, profile.comfort - roomTemperature);
   const epsilon = 0.0001;
-  if (deficit + epsilon >= CFG.fan.heating.mediumDelta) return "medium";
-  if (deficit + epsilon >= CFG.fan.heating.lowDelta) return "low";
+  /* V14.2: hysterese; een hogere stand blijft tot het tekort duidelijk kleiner is. */
+  const mediumThreshold = currentFan === "medium" ? h.mediumDelta - h.hysteresis : h.mediumDelta;
+  const lowThreshold = ["low", "medium"].includes(currentFan) ? h.lowDelta - h.hysteresis : h.lowDelta;
+  if (deficit + epsilon >= mediumThreshold) return "medium";
+  if (deficit + epsilon >= lowThreshold) return "low";
   return "quiet";
+}
+function limitHeatingFanChange(state, ac, fan, roomTemperature, profile) {
+  if (!ac.power || ac.mode !== "heat" || !ac.fan || fan === ac.fan) return fan;
+  if (!["quiet", "low", "medium"].includes(ac.fan)) return fan;
+  const deficit = profile.comfort - roomTemperature;
+  if (fanRank(fan) > fanRank(ac.fan) && deficit >= CFG.fan.heating.urgentDeficit) return fan;
+  const lastChange = finiteTimestamp(state.lastFanChange);
+  if (lastChange === null) return fan;
+  const elapsedMinutes = (Date.now() - lastChange) / 60000;
+  if (elapsedMinutes >= CFG.fan.heating.minimumChangeMinutes) return fan;
+  log(`Fanwissel uitgesteld | ${ac.fan} → ${fan} | ${elapsedMinutes.toFixed(1)} van ${CFG.fan.heating.minimumChangeMinutes} min`);
+  return ac.fan;
+}
+
+/* =========================================================
+ * 7B. MODULEREND SETPOINT V14.2
+ * ========================================================= */
+
+function heatSetpointLevels(profile) {
+  const full = profile.heatTarget;
+  const mid = Math.min(full, Math.floor(profile.comfort + 0.5));
+  const low = mid - 1;
+  return [...new Set([full, mid, low])];
+}
+function modulatedHeatTarget(state, ac, roomTemperature, profile) {
+  const m = CFG.modulation;
+  if (!m.enabled || profile.heatTarget < profile.comfort + m.minimumGap) {
+    return { target: profile.heatTarget, reason: "vast setpoint" };
+  }
+  const levels = heatSetpointLevels(profile);
+  const boundaries = [profile.comfort + m.fullBelowDelta, profile.comfort + m.lowFromDelta];
+  const rawIndex = roomTemperature < boundaries[0] ? 0 : (roomTemperature < boundaries[1] ? 1 : 2);
+  const heatingNow = ac.power && ac.mode === "heat";
+  const currentIndex = heatingNow ? levels.indexOf(Number(ac.target)) : -1;
+  if (currentIndex < 0) {
+    const index = Math.min(rawIndex, levels.length - 1);
+    return { target: levels[index], reason: `start op niveau ${index + 1}/${levels.length}` };
+  }
+  if (rawIndex > currentIndex) {
+    const last = finiteTimestamp(state.lastSetpointChange);
+    const elapsed = last === null ? Infinity : (Date.now() - last) / 60000;
+    if (elapsed < m.stepDownMinutes) {
+      return { target: levels[currentIndex], reason: `omlaag uitgesteld ${elapsed.toFixed(1)}/${m.stepDownMinutes} min` };
+    }
+    const index = Math.min(currentIndex + 1, levels.length - 1);
+    return { target: levels[index], reason: `kamer ${roomTemperature} °C; stap omlaag` };
+  }
+  if (rawIndex < currentIndex) {
+    const upIndex = roomTemperature < boundaries[0] - m.hysteresis ? 0
+      : (roomTemperature < boundaries[1] - m.hysteresis ? 1 : 2);
+    const index = Math.min(upIndex, currentIndex);
+    return { target: levels[index], reason: index < currentIndex ? `kamer ${roomTemperature} °C; stap omhoog` : "hysterese" };
+  }
+  return { target: levels[currentIndex], reason: "niveau gehandhaafd" };
 }
 function selectFan(state, current, wanted) {
   if (!current || current === wanted || fanRank(wanted) > fanRank(current)) return wanted;
@@ -507,10 +618,18 @@ function applyHeatingPredictionBoost(selectedFan, prediction, roomTemperature, p
   return "low";
 }
 function determineHeatingFan(state, ac, prediction, roomTemperature, profile) {
-  let fan = selectFan(state, ac.fan, wantedHeatingFan(roomTemperature, profile));
+  let fan = selectFan(state, ac.fan, wantedHeatingFan(roomTemperature, profile, ac.fan));
   fan = applyHeatingPredictionBoost(fan, prediction, roomTemperature, profile);
   fan = applyHeatingTrendBoost(fan, prediction, roomTemperature, profile);
-  return fan;
+  return limitHeatingFanChange(state, ac, fan, roomTemperature, profile);
+}
+function heatingDesired(state, ac, prediction, roomTemperature, profile) {
+  const fan = determineHeatingFan(state, ac, prediction, roomTemperature, profile);
+  const setpoint = modulatedHeatTarget(state, ac, roomTemperature, profile);
+  if (Number(ac.target) !== setpoint.target || !ac.power) {
+    log(`MODULATIE | setpoint ${ac.power ? ac.target : "uit"} → ${setpoint.target} °C | ${setpoint.reason}`);
+  }
+  return { power: true, mode: "heat", target: setpoint.target, fan };
 }
 
 /* =========================================================
@@ -773,7 +892,17 @@ let stateChanged = false;
 const vincentHome = Boolean(value(vincent, "presence"));
 const roosHome = Boolean(value(roos, "presence"));
 const overrideActive = Boolean(value(presenceOverride, "onoff"));
-const occupied = vincentHome || roosHome || overrideActive;
+const presentNow = vincentHome || roosHome || overrideActive;
+/* V14.2: afwezigheidsvertraging */
+if (presentNow) {
+  if (state.awaySince !== null) { state.awaySince = null; stateChanged = true; }
+} else if (state.awaySince === null) {
+  state.awaySince = Date.now();
+  stateChanged = true;
+}
+const awayMinutes = presentNow ? 0 : (Date.now() - state.awaySince) / 60000;
+const occupied = presentNow || awayMinutes < CFG.awayDelayMinutes;
+if (!presentNow && occupied) log(`AFWEZIG | ${awayMinutes.toFixed(1)} van ${CFG.awayDelayMinutes} min; nog als thuis behandeld`);
 const vacationActive = isTruthy(vacationVariable.value);
 const sleeping = sleepingVariable.value === true;
 const profileSelection = determineProfile(sleeping);
@@ -818,6 +947,12 @@ stateChanged = stateChanged || sampleResult.changed;
 const prediction = calculatePrediction(state, sampleResult.history, roomTemperature, sampleResult.sampleAdded);
 stateChanged = stateChanged || prediction.stateChanged;
 const predictiveHeat = !ac.power && predictiveHeatingNeeded(roomTemperature, profile, prediction);
+/* V14.2: minimale uit-tijd na het bereiken van het verwarmingsdoel */
+const lastHeatStop = finiteTimestamp(state.lastHeatStop);
+const minutesSinceHeatStop = lastHeatStop === null ? Infinity : (Date.now() - lastHeatStop) / 60000;
+const minimumOffActive = !ac.power &&
+  minutesSinceHeatStop < CFG.heatingCycle.minimumOffMinutes &&
+  roomTemperature >= profile.heatStart - CFG.heatingCycle.emergencyMargin;
 const predictiveCool = !ac.power && predictiveCoolingNeeded(roomTemperature, profile, prediction, coolingAllowed);
 if (ac.power && ac.mode === "cool" && state.coolingStarted === null) {
   state.coolingStarted = Date.now();
@@ -839,8 +974,8 @@ log(`Aanwezig Vincent=${vincentHome} | Roos=${roosHome} | Override=${overrideAct
 log(`Schuifpui open=${door.open} | open ${door.minutes.toFixed(1)} min | stop=${door.stop}`);
 log(`Kamer ${roomTemperature}°C | buiten ${outdoor.valid ? `${outdoor.temperature}°C via ${outdoor.source}` : "onbekend"} | koeling toegestaan=${coolingAllowed} | Sensibo ${ac.power ? "AAN" : "UIT"} ${ac.mode}/${ac.target}°C/${ac.fan}`);
 if (prediction.available) {
-  log(`V14.1 TREND | ${prediction.samples} samples / ${prediction.spanMinutes.toFixed(1)} min | raw ${prediction.rawTrendPerHour >= 0 ? "+" : ""}${prediction.rawTrendPerHour.toFixed(2)} | EMA ${prediction.smoothedTrendPerHour >= 0 ? "+" : ""}${prediction.smoothedTrendPerHour.toFixed(2)} | effectief ${prediction.effectiveTrendPerHour >= 0 ? "+" : ""}${prediction.effectiveTrendPerHour.toFixed(2)} °C/u | delta ${prediction.predictionDelta >= 0 ? "+" : ""}${prediction.predictionDelta.toFixed(2)} °C | +${CFG.prediction.forecastMinutes}m ${prediction.predictedTemperature.toFixed(1)} °C | startHeat=${predictiveHeat} | startCool=${predictiveCool}`);
-} else log(`V14.1 TREND | niet beschikbaar: ${prediction.reason}`);
+  log(`V14.2 TREND | ${prediction.samples} samples / ${prediction.spanMinutes.toFixed(1)} min | raw ${prediction.rawTrendPerHour >= 0 ? "+" : ""}${prediction.rawTrendPerHour.toFixed(2)} | EMA ${prediction.smoothedTrendPerHour >= 0 ? "+" : ""}${prediction.smoothedTrendPerHour.toFixed(2)} | effectief ${prediction.effectiveTrendPerHour >= 0 ? "+" : ""}${prediction.effectiveTrendPerHour.toFixed(2)} °C/u | delta ${prediction.predictionDelta >= 0 ? "+" : ""}${prediction.predictionDelta.toFixed(2)} °C | +${CFG.prediction.forecastMinutes}m ${prediction.predictedTemperature.toFixed(1)} °C | startHeat=${predictiveHeat} | startCool=${predictiveCool}`);
+} else log(`V14.2 TREND | niet beschikbaar: ${prediction.reason}`);
 
 /* =========================================================
  * 13. BESLISLOGICA
@@ -849,7 +984,7 @@ if (prediction.available) {
 let desired = null;
 let reason = "";
 let result = "HOLD";
-const effects = { clearCooling: false, startCooling: false, cancelMold: false, startMold: false, completeMold: false };
+const effects = { clearCooling: false, startCooling: false, cancelMold: false, startMold: false, completeMold: false, heatStop: false };
 
 if (door.stop) {
   desired = { power: false };
@@ -883,9 +1018,13 @@ if (door.stop) {
   }
   effects.clearCooling = true;
   effects.cancelMold = true;
+} else if ((roomTemperature < profile.heatStart || predictiveHeat) && minimumOffActive) {
+  desired = null;
+  reason = `minimale uit-tijd; ${minutesSinceHeatStop.toFixed(1)} van ${CFG.heatingCycle.minimumOffMinutes} min; ${roomTemperature} °C`;
+  result = "HEAT_MIN_OFF";
+  log(`MINIMALE UIT-TIJD | ${reason}`);
 } else if (roomTemperature < profile.heatStart || predictiveHeat) {
-  const fan = determineHeatingFan(state, ac, prediction, roomTemperature, profile);
-  desired = { power: true, mode: "heat", target: profile.heatTarget, fan };
+  desired = heatingDesired(state, ac, prediction, roomTemperature, profile);
   if (predictiveHeat) {
     reason = `voorspellend verwarmen; ${roomTemperature} °C; EMA ${prediction.smoothedTrendPerHour.toFixed(2)} °C/u; verwacht ${prediction.predictedTemperature.toFixed(1)} °C`;
     result = "PREDICTIVE_HEATING";
@@ -918,8 +1057,7 @@ if (door.stop) {
   result = "ANTI_MOLD_COMPLETE";
   effects.completeMold = true;
 } else if (ac.power && ac.mode === "heat" && roomTemperature <= profile.heatStop) {
-  const fan = determineHeatingFan(state, ac, prediction, roomTemperature, profile);
-  desired = { power: true, mode: "heat", target: profile.heatTarget, fan };
+  desired = heatingDesired(state, ac, prediction, roomTemperature, profile);
   reason = `verwarming actief; ${roomTemperature} °C`;
   result = "HEATING";
   effects.clearCooling = true;
@@ -929,6 +1067,7 @@ if (door.stop) {
   reason = `verwarmingsdoel bereikt; ${roomTemperature} °C`;
   result = "HEATING_STOP";
   effects.clearCooling = true;
+  effects.heatStop = true;
 } else if (ac.power && ac.mode === "cool" && roomTemperature >= profile.coolStop && coolingAllowed) {
   const excess = Math.max(0, roomTemperature - profile.comfort);
   const fan = selectFan(state, ac.fan, wantedFan(excess));
@@ -952,8 +1091,7 @@ if (door.stop) {
   }
 } else if (ac.power && !["heat", "cool"].includes(ac.mode)) {
   if (roomTemperature <= profile.comfort) {
-    const fan = determineHeatingFan(state, ac, prediction, roomTemperature, profile);
-    desired = { power: true, mode: "heat", target: profile.heatTarget, fan };
+    desired = heatingDesired(state, ac, prediction, roomTemperature, profile);
     reason = `onbeheerde modus gecorrigeerd; ${roomTemperature} °C`;
     result = "MODE_CORRECTED_TO_HEAT";
     effects.clearCooling = true;
@@ -1010,9 +1148,22 @@ if (actionSucceeded) {
     state.lastFanChange = Date.now();
     effectStateChanged = true;
   }
+  if (changes.length && desired?.power && desired.mode === "heat" &&
+    (!ac.power || Number(ac.target) !== Number(desired.target))) {
+    state.lastSetpointChange = Date.now();
+    effectStateChanged = true;
+  }
+  if (effects.heatStop && changes.length) {
+    state.lastHeatStop = Date.now();
+    effectStateChanged = true;
+  }
   if (effectStateChanged) await saveClimateState(climateStateVariable, state, "klimaateffecten");
 }
-if (actionSucceeded && changes.length) {
+const onlyAdjustments = changes.length > 0 &&
+  changes.every(change => change.startsWith("setpoint ") || change.startsWith("fan "));
+if (actionSucceeded && changes.length && onlyAdjustments && CFG.timelineQuietAdjustments) {
+  log(`Timeline overgeslagen (alleen bijsturing): ${changes.join(" | ")}`);
+} else if (actionSucceeded && changes.length) {
   let icon = "⚙️";
   if (["HEATING", "PREDICTIVE_HEATING", "MODE_CORRECTED_TO_HEAT", "AWAY_HEATING", "VACATION_HEATING"].includes(result)) icon = "🔥";
   else if (["COOLING", "PREDICTIVE_COOLING"].includes(result)) icon = "❄️";
@@ -1028,5 +1179,5 @@ const outsideText = outdoor.valid ? `${outdoor.temperature}°C via ${outdoor.sou
 const predictionText = prediction.available
   ? `${prediction.samples} samples | EMA ${prediction.smoothedTrendPerHour >= 0 ? "+" : ""}${prediction.smoothedTrendPerHour.toFixed(2)}°C/u | effectief ${prediction.effectiveTrendPerHour >= 0 ? "+" : ""}${prediction.effectiveTrendPerHour.toFixed(2)}°C/u → ${prediction.predictedTemperature.toFixed(1)}°C`
   : prediction.reason;
-log(`${period} | ${profileSelection.clock.text} | Slapen=${sleeping} | ComfortBoost=${comfortBoostActive} | comfort=${profile.comfort.toFixed(1)}°C | binnen ${roomTemperature}°C | buiten ${outsideText} | V14.1 bescherming=${coldProtection.type} | ${predictionText} | Insights ${sampleResult.sampleAdded ? "UPDATE" : "-"} | Sensibo ${ac.power ? "AAN" : "UIT"} ${ac.mode}/${ac.target}°C/${ac.fan} | ${result} | wijzigingen ${changes.length}`);
-return `${period} | ${profileSelection.clock.text} | Slapen=${sleeping} | ComfortBoost=${comfortBoostActive} | comfort=${profile.comfort.toFixed(1)}°C | ${roomTemperature}°C | buiten ${outsideText} | V14.1 bescherming=${coldProtection.type} | ${predictionText} | Insights ${sampleResult.sampleAdded ? "UPDATE" : "-"} | ${result} | ${changes.length} wijziging(en)`;
+log(`${period} | ${profileSelection.clock.text} | Slapen=${sleeping} | ComfortBoost=${comfortBoostActive} | comfort=${profile.comfort.toFixed(1)}°C | binnen ${roomTemperature}°C | buiten ${outsideText} | V14.2 bescherming=${coldProtection.type} | ${predictionText} | Insights ${sampleResult.sampleAdded ? "UPDATE" : "-"} | Sensibo ${ac.power ? "AAN" : "UIT"} ${ac.mode}/${ac.target}°C/${ac.fan} | ${result} | wijzigingen ${changes.length}`);
+return `${period} | ${profileSelection.clock.text} | Slapen=${sleeping} | ComfortBoost=${comfortBoostActive} | comfort=${profile.comfort.toFixed(1)}°C | ${roomTemperature}°C | buiten ${outsideText} | V14.2 bescherming=${coldProtection.type} | ${predictionText} | Insights ${sampleResult.sampleAdded ? "UPDATE" : "-"} | ${result} | ${changes.length} wijziging(en)`;
