@@ -2,6 +2,16 @@
 
 All notable changes to the Homey production automation are documented here.
 
+## Central Lighting Controller - 11.3.0 - 2026-11-23
+
+### Fixed
+
+- Killswitch (oppasmodus) werkte niet als niemand thuis was. Het script ging
+  dan altijd naar de afwezigheidsregeling, die bij een actieve Killswitch
+  alleen "geblokkeerd" logde en niets deed. De verlichting bleef daardoor in
+  de afwezigheidsstand (gedimde keuken, hal nacht) of uit. Nu draait met de
+  Killswitch aan de normale binnenregeling, alsof er iemand thuis is.
+
 ## Airzone Controller - 2.3.0 - 2026-11-23
 
 ### Added

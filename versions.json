@@ -15,7 +15,7 @@
     },
     "centralLighting": {
       "name": "Central Lighting Controller",
-      "version": "11.2.0",
+      "version": "11.3.0",
       "path": "scripts/lighting/central-lighting.js"
     }
   }
