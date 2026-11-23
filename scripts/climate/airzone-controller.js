@@ -1,346 +1,346 @@
+/**
+ * ============================================================
+ * AIRZONE BOVEN V2.2
+ * FAST-PATH CONTROLLER MET EUROPE/AMSTERDAM TIMEZONE
+ * ============================================================
+ *
+ * Uitvoeren:
+ * - iedere 5 minuten
+ * - eventueel ook bij wijziging van modus of vakantie
+ *
+ * TIMEZONE:
+ * - Alle beslissingen gebruiken Europe/Amsterdam
+ * - Automatische ondersteuning voor CET en CEST
+ * - Nooit afhankelijk van de runtime-timezone
+ *
+ * WINTER
+ *
+ * Master:
+ * - Venster 18:00 tot 06:00 Nederlandse tijd
+ * - Start onder 15,0 °C
+ * - Verwarm tot 17,0 °C
+ * - Om 06:00 altijd uit
+ *
+ * Abel en Hugo:
+ * - Venster 18:00 tot 07:30 Nederlandse tijd
+ * - Start onder 16,7 °C
+ * - Stop vanaf 17,2 °C
+ * - Doel 17,0 °C
+ *
+ * Badkamer:
+ * - Avondcomfort 18:00 tot 21:30 Nederlandse tijd
+ * - Daarna hard uit tijdens de nacht
+ * - Voorspellende voorverwarming richting 06:00
+ * - Ochtendcomfort 06:00 tot 07:30
+ * - Doel 21,0 °C
+ * - Verwarmingssnelheid afhankelijk van buitentemperatuur
+ *
+ * ZOMER
+ *
+ * - Cooling
+ * - Master 19,0 °C
+ * - Abel 20,0 °C
+ * - Hugo 20,0 °C
+ * - Badkamer 21,0 °C
+ *
+ * VAKANTIE
+ *
+ * - Overrulet winter en zomer
+ * - Alle zones 24/7
+ * - Start onder 12,0 °C
+ * - Verwarm tot 12,5 °C
+ * - Uit vanaf 12,5 °C
+ *
+ * MELDINGEN
+ *
+ * - 18:00-push via Airzone Push bericht
+ * - Timeline via Airzone Timeline bericht
+ * - Alleen betekenisvolle acties
+ *
+ * FAST PATH
+ *
+ * - Geen writes als alles goed staat
+ * - Geen wachttijd zonder echte write
+ * - Maximaal 3 pogingen per write
+ * ============================================================
+ */
 
-  ============================================================
-  AIRZONE BOVEN V2.2
-  FAST-PATH CONTROLLER MET EUROPEAMSTERDAM TIMEZONE
-  ============================================================
- 
-  Uitvoeren
-  - iedere 5 minuten
-  - eventueel ook bij wijziging van modus of vakantie
- 
-  TIMEZONE
-  - Alle beslissingen gebruiken EuropeAmsterdam
-  - Automatische ondersteuning voor CET en CEST
-  - Nooit afhankelijk van de runtime-timezone
- 
-  WINTER
- 
-  Master
-  - Venster 1800 tot 0600 Nederlandse tijd
-  - Start onder 15,0 °C
-  - Verwarm tot 17,0 °C
-  - Om 0600 altijd uit
- 
-  Abel en Hugo
-  - Venster 1800 tot 0730 Nederlandse tijd
-  - Start onder 16,7 °C
-  - Stop vanaf 17,2 °C
-  - Doel 17,0 °C
- 
-  Badkamer
-  - Avondcomfort 1800 tot 2130 Nederlandse tijd
-  - Daarna hard uit tijdens de nacht
-  - Voorspellende voorverwarming richting 0600
-  - Ochtendcomfort 0600 tot 0730
-  - Doel 21,0 °C
-  - Verwarmingssnelheid afhankelijk van buitentemperatuur
- 
-  ZOMER
- 
-  - Cooling
-  - Master 19,0 °C
-  - Abel 20,0 °C
-  - Hugo 20,0 °C
-  - Badkamer 21,0 °C
- 
-  VAKANTIE
- 
-  - Overrulet winter en zomer
-  - Alle zones 247
-  - Start onder 12,0 °C
-  - Verwarm tot 12,5 °C
-  - Uit vanaf 12,5 °C
- 
-  MELDINGEN
- 
-  - 1800-push via Airzone Push bericht
-  - Timeline via Airzone Timeline bericht
-  - Alleen betekenisvolle acties
- 
-  FAST PATH
- 
-  - Geen writes als alles goed staat
-  - Geen wachttijd zonder echte write
-  - Maximaal 3 pogingen per write
-  ============================================================
- 
 
-
- ============================================================
-  1. CONFIGURATIE
-  ============================================================
- 
+/* ============================================================
+ * 1. CONFIGURATIE
+ * ============================================================
+ */
 
 const CONFIG = {
 
-    version
+    version:
         '2.2',
 
-    timezone
-        'EuropeAmsterdam',
+    timezone:
+        'Europe/Amsterdam',
 
-    devices {
+    devices: {
 
-        master
+        master:
             '748dc15f-8ce0-48af-a658-f679acc7e8f4',
 
-        abel
+        abel:
             'a10c5a80-b5ca-461a-a9ce-2640f0a52a30',
 
-        hugo
+        hugo:
             'e2c377d5-a86e-4d65-9d66-16898a41a03e',
 
-        badkamer
+        badkamer:
             '137c8071-ef8d-492e-b99a-25bb26619fa6'
     },
 
-    logic {
+    logic: {
 
-        vacation
+        vacation:
             'Vakantie',
 
-        mode
+        mode:
             'Airzone modus',
 
-        pushDate
+        pushDate:
             'Airzone Push datum',
 
-        pushMessage
+        pushMessage:
             'Airzone Push bericht',
 
-        timelineMessage
+        timelineMessage:
             'Airzone Timeline bericht',
 
-        winterActive
+        winterActive:
             'Airzone Winter actief',
 
-        masterCycle
+        masterCycle:
             'Airzone Master verwarmcyclus',
 
-        outsideTemperature
+        outsideTemperature:
             'Actuele temp. buiten'
     },
 
-    winter {
+    winter: {
 
-        master {
+        master: {
 
-            activeFrom
-                '1800',
+            activeFrom:
+                '18:00',
 
-            activeUntil
-                '0600',
+            activeUntil:
+                '06:00',
 
-            startBelow
+            startBelow:
                 15.0,
 
-            stopAt
+            stopAt:
                 17.0,
 
-            target
+            target:
                 17.0
         },
 
-        bedrooms {
+        bedrooms: {
 
-            activeFrom
-                '1800',
+            activeFrom:
+                '18:00',
 
-            activeUntil
-                '0730'
+            activeUntil:
+                '07:30'
         },
 
-        abel {
+        abel: {
 
-            startBelow
+            startBelow:
                 16.7,
 
-            stopAt
+            stopAt:
                 17.2,
 
-            target
+            target:
                 17.0
         },
 
-        hugo {
+        hugo: {
 
-            startBelow
+            startBelow:
                 16.7,
 
-            stopAt
+            stopAt:
                 17.2,
 
-            target
+            target:
                 17.0
         },
 
-        bathroom {
+        bathroom: {
 
-            eveningFrom
-                '1800',
+            eveningFrom:
+                '18:00',
 
-            eveningUntil
-                '2130',
+            eveningUntil:
+                '21:30',
 
-            morningTargetTime
-                '0600',
+            morningTargetTime:
+                '06:00',
 
-            morningUntil
-                '0730',
+            morningUntil:
+                '07:30',
 
-            
-              Normale comfortregeling in avond en ochtend.
-             
-            startBelow
+            /*
+             * Normale comfortregeling in avond en ochtend.
+             */
+            startBelow:
                 20.2,
 
-            stopAt
+            stopAt:
                 20.7,
 
-            target
+            target:
                 20.5,
 
-            
-              Na het bereiken van 21,2 °C in de predictieve fase
-              niet opnieuw starten, tenzij de badkamer onder 20,5 °C zakt.
-             
-            predictiveRestartBelow
+            /*
+             * Na het bereiken van 21,2 °C in de predictieve fase
+             * niet opnieuw starten, tenzij de badkamer onder 20,5 °C zakt.
+             */
+            predictiveRestartBelow:
                 20.0,
 
-            
-              Buitentemperatuurmodel
-              =10 °C buiten 1,0 °C per uur
-              10-20 °C buiten lineair 1,0 - 1,6 °C per uur
-              =20 °C buiten 1,6 °C per uur
-             
-            heatingRateCold
+            /*
+             * Buitentemperatuurmodel:
+             * <=10 °C buiten: 1,0 °C per uur
+             * 10-20 °C buiten: lineair 1,0 -> 1,6 °C per uur
+             * >=20 °C buiten: 1,6 °C per uur
+             */
+            heatingRateCold:
                 0.8,
 
-            heatingRateWarm
+            heatingRateWarm:
                 1.3,
 
-            heatingRateColdUntil
+            heatingRateColdUntil:
                 10.0,
 
-            heatingRateWarmFrom
+            heatingRateWarmFrom:
                 20.0,
 
-            fallbackHeatingRate
+            fallbackHeatingRate:
                 0.8,
 
-            predictiveSafetyMinutes
+            predictiveSafetyMinutes:
                 15,
 
-            predictiveMaxPreheatMinutes
+            predictiveMaxPreheatMinutes:
                 300,
 
-            predictiveMinGap
+            predictiveMinGap:
                 0.1
         }
     },
 
-    summer {
+    summer: {
 
-        master
+        master:
             19.0,
 
-        abel
+        abel:
             20.0,
 
-        hugo
+        hugo:
             20.0,
 
-        badkamer
+        badkamer:
             21.0
     },
 
-    vacation {
+    vacation: {
 
-        startBelow
+        startBelow:
             12.0,
 
-        stopAt
+        stopAt:
             12.5,
 
-        target
+        target:
             12.5
     },
 
-    push {
+    push: {
 
-        enabled
+        enabled:
             true,
 
-        start
-            '1800',
+        start:
+            '18:00',
 
-        end
-            '1815',
+        end:
+            '18:15',
 
-        suppressDuringVacation
+        suppressDuringVacation:
             true,
 
-        includeTemperatures
+        includeTemperatures:
             true,
 
-        includeTargets
+        includeTargets:
             true
     },
 
-    timeline {
+    timeline: {
 
-        enabled
+        enabled:
             true,
 
-        aggregateActions
+        aggregateActions:
             true
     },
 
-    timing {
+    timing: {
 
-        afterMode
+        afterMode:
             1500,
 
-        afterInitialOn
+        afterInitialOn:
             2000,
 
-        afterTarget
+        afterTarget:
             1500,
 
-        afterOff
+        afterOff:
             1500,
 
-        afterRealChange
+        afterRealChange:
             750,
 
-        betweenChangedZones
+        betweenChangedZones:
             1000,
 
-        retryDelay
+        retryDelay:
             3000
     },
 
-    retries
+    retries:
         3,
 
-    targetTolerance
+    targetTolerance:
         0.1,
 
-    validTemperature {
+    validTemperature: {
 
-        min
+        min:
             5,
 
-        max
+        max:
             40
     }
 };
 
 
- ============================================================
-  2. RUNTIME
-  ============================================================
- 
+/* ============================================================
+ * 2. RUNTIME
+ * ============================================================
+ */
 
 let deviceCache = {};
 
@@ -350,17 +350,17 @@ let writesThisRun =
 const timelineEvents = [];
 
 
- ============================================================
-  3. ALGEMENE HELPERS
-  ============================================================
- 
+/* ============================================================
+ * 3. ALGEMENE HELPERS
+ * ============================================================
+ */
 
 function normalize(value) {
 
-    return String(value  '')
+    return String(value ?? '')
         .trim()
         .toLowerCase()
-        .replace(s+g, ' ');
+        .replace(/\s+/g, ' ');
 }
 
 
@@ -371,7 +371,7 @@ function errorText(error) {
     }
 
     return (
-        error.message 
+        error.message ||
         String(error)
     );
 }
@@ -381,8 +381,8 @@ function formatTemp(value) {
 
     return typeof value === 'number' &&
         Number.isFinite(value)
-         `${value.toFixed(1)} °C`
-         'onbekend';
+        ? `${value.toFixed(1)} °C`
+        : 'onbekend';
 }
 
 
@@ -391,9 +391,9 @@ function validTemperature(value) {
     return (
         typeof value === 'number' &&
         Number.isFinite(value) &&
-        value =
+        value >=
             CONFIG.validTemperature.min &&
-        value =
+        value <=
             CONFIG.validTemperature.max
     );
 }
@@ -402,8 +402,8 @@ function validTemperature(value) {
 async function pause(milliseconds) {
 
     if (
-        typeof milliseconds !== 'number' 
-        milliseconds = 0
+        typeof milliseconds !== 'number' ||
+        milliseconds <= 0
     ) {
         return;
     }
@@ -412,29 +412,29 @@ async function pause(milliseconds) {
 }
 
 
- ============================================================
-  4. TIMEZONE-SAFE CLOCK
-  ============================================================
- 
+/* ============================================================
+ * 4. TIMEZONE-SAFE CLOCK
+ * ============================================================
+ */
 
-
-  Zet een Date expliciet om naar EuropeAmsterdam.
- 
-  Daardoor worden automatisch ondersteund
- 
-  - CET in de winter
-  - CEST in de zomer
-  - overgang naar zomertijd
-  - overgang naar wintertijd
- 
-  Gebruik voor regelbeslissingen nooit direct
- 
-  - date.getHours()
-  - date.getMinutes()
-  - date.getFullYear()
-  - date.getMonth()
-  - date.getDate()
- 
+/**
+ * Zet een Date expliciet om naar Europe/Amsterdam.
+ *
+ * Daardoor worden automatisch ondersteund:
+ *
+ * - CET in de winter
+ * - CEST in de zomer
+ * - overgang naar zomertijd
+ * - overgang naar wintertijd
+ *
+ * Gebruik voor regelbeslissingen nooit direct:
+ *
+ * - date.getHours()
+ * - date.getMinutes()
+ * - date.getFullYear()
+ * - date.getMonth()
+ * - date.getDate()
+ */
 
 function getLocalClock(
     date = new Date()
@@ -444,28 +444,28 @@ function getLocalClock(
         new Intl.DateTimeFormat(
             'en-GB',
             {
-                timeZone
+                timeZone:
                     CONFIG.timezone,
 
-                year
+                year:
                     'numeric',
 
-                month
+                month:
                     '2-digit',
 
-                day
+                day:
                     '2-digit',
 
-                hour
+                hour:
                     '2-digit',
 
-                minute
+                minute:
                     '2-digit',
 
-                second
+                second:
                     '2-digit',
 
-                hourCycle
+                hourCycle:
                     'h23'
             }
         );
@@ -500,13 +500,13 @@ function getLocalClock(
 
     return {
 
-        year
+        year:
             Number(parts.year),
 
-        month
+        month:
             Number(parts.month),
 
-        day
+        day:
             Number(parts.day),
 
         hour,
@@ -515,35 +515,35 @@ function getLocalClock(
 
         second,
 
-        minutesSinceMidnight
-            hour  60 +
+        minutesSinceMidnight:
+            hour * 60 +
             minute,
 
-        secondsSinceMidnight
-            hour  3600 +
-            minute  60 +
+        secondsSinceMidnight:
+            hour * 3600 +
+            minute * 60 +
             second,
 
-        dateKey
+        dateKey:
             `${parts.year}-` +
             `${parts.month}-` +
             `${parts.day}`,
 
-        displayDate
+        displayDate:
             `${parts.day}-` +
             `${parts.month}-` +
             `${parts.year}`,
 
-        displayTime
-            `${parts.hour}` +
-            `${parts.minute}` +
+        displayTime:
+            `${parts.hour}:` +
+            `${parts.minute}:` +
             `${parts.second}`,
 
-        shortTime
-            `${parts.hour}` +
+        shortTime:
+            `${parts.hour}:` +
             `${parts.minute}`,
 
-        timezone
+        timezone:
             CONFIG.timezone
     };
 }
@@ -586,13 +586,13 @@ function timeToMinutes(value) {
         String(value)
             .trim()
             .match(
-                ^(d{1,2})(d{2})$
+                /^(\d{1,2}):(\d{2})$/
             );
 
     if (!match) {
 
         throw new Error(
-            `Ongeldige tijdconfiguratie ${value}`
+            `Ongeldige tijdconfiguratie: ${value}`
         );
     }
 
@@ -603,37 +603,37 @@ function timeToMinutes(value) {
         Number(match[2]);
 
     if (
-        hour  0 
-        hour  23 
-        minute  0 
-        minute  59
+        hour < 0 ||
+        hour > 23 ||
+        minute < 0 ||
+        minute > 59
     ) {
 
         throw new Error(
-            `Ongeldige tijdconfiguratie ${value}`
+            `Ongeldige tijdconfiguratie: ${value}`
         );
     }
 
     return (
-        hour  60 +
+        hour * 60 +
         minute
     );
 }
 
 
-
-  Ondersteunt ook tijdvensters over middernacht.
- 
-  Voorbeelden
- 
-  1800 tot 0600
-  1800 tot 0730
- 
-  Het eindtijdstip is exclusief
- 
-  0559 = actief
-  0600 = niet actief
- 
+/**
+ * Ondersteunt ook tijdvensters over middernacht.
+ *
+ * Voorbeelden:
+ *
+ * 18:00 tot 06:00
+ * 18:00 tot 07:30
+ *
+ * Het eindtijdstip is exclusief:
+ *
+ * 05:59 = actief
+ * 06:00 = niet actief
+ */
 
 function isTimeWindowActive(
     from,
@@ -661,26 +661,26 @@ function isTimeWindowActive(
     }
 
     if (
-        start  end
+        start < end
     ) {
 
         return (
-            current = start &&
-            current  end
+            current >= start &&
+            current < end
         );
     }
 
     return (
-        current = start 
-        current  end
+        current >= start ||
+        current < end
     );
 }
 
 
- ============================================================
-  5. TIMELINE
-  ============================================================
- 
+/* ============================================================
+ * 5. TIMELINE
+ * ============================================================
+ */
 
 function addTimelineEvent(message) {
 
@@ -693,7 +693,7 @@ function addTimelineEvent(message) {
     timelineEvents.push(message);
 
     log(
-        `Timeline-event  ${message}`
+        `Timeline-event | ${message}`
     );
 }
 
@@ -703,7 +703,7 @@ async function publishTimelineEvents(
 ) {
 
     if (
-        !CONFIG.timeline.enabled 
+        !CONFIG.timeline.enabled ||
         timelineEvents.length === 0
     ) {
         return;
@@ -714,8 +714,8 @@ async function publishTimelineEvents(
     ];
 
     const text =
-        `Airzone boven [${shortTimestamp()}]n` +
-        uniqueEvents.join('n');
+        `Airzone boven [${shortTimestamp()}]\n` +
+        uniqueEvents.join('\n');
 
     await setLogicVariable(
         logic.timelineMessage,
@@ -723,16 +723,16 @@ async function publishTimelineEvents(
     );
 
     log(
-        `Timeline voorbereid  ` +
+        `Timeline voorbereid | ` +
         `${uniqueEvents.length} actie(s)`
     );
 }
 
 
- ============================================================
-  6. DEVICE-CACHE
-  ============================================================
- 
+/* ============================================================
+ * 6. DEVICE-CACHE
+ * ============================================================
+ */
 
 async function refreshAllDevices() {
 
@@ -782,9 +782,9 @@ function capabilityValue(
 ) {
 
     return device
-        .capabilitiesObj
-        .[capabilityId]
-        .value;
+        ?.capabilitiesObj
+        ?.[capabilityId]
+        ?.value;
 }
 
 
@@ -802,33 +802,33 @@ function validateDevice(
 
     const capabilities =
         Array.isArray(device.capabilities)
-             device.capabilities
-             [];
+            ? device.capabilities
+            : [];
 
     const missingCapabilities =
         requiredCapabilities.filter(
-            capabilityId =
+            capabilityId =>
                 !capabilities.includes(
                     capabilityId
                 )
         );
 
     if (
-        missingCapabilities.length  0
+        missingCapabilities.length > 0
     ) {
 
         throw new Error(
-            `${label} mist capabilities ` +
+            `${label} mist capabilities: ` +
             missingCapabilities.join(', ')
         );
     }
 }
 
 
- ============================================================
-  7. LOGIC-VARIABELEN
-  ============================================================
- 
+/* ============================================================
+ * 7. LOGIC-VARIABELEN
+ * ============================================================
+ */
 
 async function getLogicVariables() {
 
@@ -848,10 +848,10 @@ function findLogicVariable(
 
     return (
         variables.find(
-            variable =
+            variable =>
                 normalize(variable.name) ===
                 normalize(variableName)
-        ) 
+        ) ||
         null
     );
 }
@@ -864,49 +864,49 @@ async function readLogicState() {
 
     const result = {
 
-        vacation
+        vacation:
             findLogicVariable(
                 variables,
                 CONFIG.logic.vacation
             ),
 
-        mode
+        mode:
             findLogicVariable(
                 variables,
                 CONFIG.logic.mode
             ),
 
-        pushDate
+        pushDate:
             findLogicVariable(
                 variables,
                 CONFIG.logic.pushDate
             ),
 
-        pushMessage
+        pushMessage:
             findLogicVariable(
                 variables,
                 CONFIG.logic.pushMessage
             ),
 
-        timelineMessage
+        timelineMessage:
             findLogicVariable(
                 variables,
                 CONFIG.logic.timelineMessage
             ),
 
-        winterActive
+        winterActive:
             findLogicVariable(
                 variables,
                 CONFIG.logic.winterActive
             ),
 
-        masterCycle
+        masterCycle:
             findLogicVariable(
                 variables,
                 CONFIG.logic.masterCycle
             ),
 
-        outsideTemperature
+        outsideTemperature:
             findLogicVariable(
                 variables,
                 CONFIG.logic.outsideTemperature
@@ -921,7 +921,7 @@ async function readLogicState() {
         if (!variable) {
 
             throw new Error(
-                `Logic-variabele ontbreekt ` +
+                `Logic-variabele ontbreekt: ` +
                 `${CONFIG.logic[key]}`
             );
         }
@@ -933,8 +933,8 @@ async function readLogicState() {
     ) {
 
         throw new Error(
-            `${CONFIG.logic.vacation} ` +
-            `moet een JaNee-variabele zijn`
+            `"${CONFIG.logic.vacation}" ` +
+            `moet een Ja/Nee-variabele zijn`
         );
     }
 
@@ -944,8 +944,8 @@ async function readLogicState() {
     ) {
 
         throw new Error(
-            `${CONFIG.logic.winterActive} ` +
-            `moet een JaNee-variabele zijn`
+            `"${CONFIG.logic.winterActive}" ` +
+            `moet een Ja/Nee-variabele zijn`
         );
     }
 
@@ -955,21 +955,21 @@ async function readLogicState() {
     ) {
 
         throw new Error(
-            `${CONFIG.logic.masterCycle} ` +
-            `moet een JaNee-variabele zijn`
+            `"${CONFIG.logic.masterCycle}" ` +
+            `moet een Ja/Nee-variabele zijn`
         );
     }
 
     if (
         typeof result.outsideTemperature.value !==
-            'number' 
+            'number' ||
         !Number.isFinite(
             result.outsideTemperature.value
         )
     ) {
 
         throw new Error(
-            `${CONFIG.logic.outsideTemperature} ` +
+            `"${CONFIG.logic.outsideTemperature}" ` +
             `moet een numerieke variabele zijn`
         );
     }
@@ -987,9 +987,9 @@ async function readLogicState() {
     ) {
 
         throw new Error(
-            `${CONFIG.logic.mode} bevat ` +
-            `${String(result.mode.value)}. ` +
-            `Gebruik Winter of Zomer.`
+            `"${CONFIG.logic.mode}" bevat ` +
+            `"${String(result.mode.value)}". ` +
+            `Gebruik "Winter" of "Zomer".`
         );
     }
 
@@ -1008,28 +1008,28 @@ async function setLogicVariable(
     ) {
 
         log(
-            `Logic  ${variable.name} al ` +
+            `Logic | ${variable.name} al ` +
             `${String(newValue)}`
         );
 
         return {
-            changed
+            changed:
                 false
         };
     }
 
     log(
-        `Logic  ${variable.name} ` +
-        `${String(variable.value)} - ` +
+        `Logic | ${variable.name}: ` +
+        `${String(variable.value)} -> ` +
         `${String(newValue)}`
     );
 
     await Homey.logic.updateVariable({
-        id
+        id:
             variable.id,
 
-        variable {
-            value
+        variable: {
+            value:
                 newValue
         }
     });
@@ -1038,16 +1038,16 @@ async function setLogicVariable(
         newValue;
 
     return {
-        changed
+        changed:
             true
     };
 }
 
 
- ============================================================
-  8. CAPABILITY-WRITES
-  ============================================================
- 
+/* ============================================================
+ * 8. CAPABILITY-WRITES
+ * ============================================================
+ */
 
 function valuesEqual(
     capabilityId,
@@ -1068,7 +1068,7 @@ function valuesEqual(
             Math.abs(
                 currentValue -
                 desiredValue
-            ) =
+            ) <=
                 CONFIG.targetTolerance
         );
     }
@@ -1093,7 +1093,7 @@ async function setCapability(
 
     for (
         let attempt = 1;
-        attempt = CONFIG.retries;
+        attempt <= CONFIG.retries;
         attempt++
     ) {
 
@@ -1131,37 +1131,37 @@ async function setCapability(
             ) {
 
                 log(
-                    `${label}  ${capabilityId} al ` +
+                    `${label} | ${capabilityId} al ` +
                     `${String(desiredValue)}`
                 );
 
                 return {
-                    success
+                    success:
                         true,
 
-                    changed
+                    changed:
                         false,
 
-                    previousValue
+                    previousValue:
                         currentValue,
 
-                    value
+                    value:
                         currentValue
                 };
             }
 
             log(
-                `${label}  ${capabilityId} ` +
-                `${String(currentValue)} - ` +
-                `${String(desiredValue)}  ` +
-                `poging ${attempt}${CONFIG.retries}`
+                `${label} | ${capabilityId}: ` +
+                `${String(currentValue)} -> ` +
+                `${String(desiredValue)} | ` +
+                `poging ${attempt}/${CONFIG.retries}`
             );
 
             await Homey.devices
                 .setCapabilityValue({
                     deviceId,
                     capabilityId,
-                    value
+                    value:
                         desiredValue
                 });
 
@@ -1190,22 +1190,22 @@ async function setCapability(
             ) {
 
                 log(
-                    `${label}  bevestigd ` +
+                    `${label} | bevestigd: ` +
                     `${capabilityId}=` +
                     `${String(checkedValue)}`
                 );
 
                 return {
-                    success
+                    success:
                         true,
 
-                    changed
+                    changed:
                         true,
 
-                    previousValue
+                    previousValue:
                         currentValue,
 
-                    value
+                    value:
                         checkedValue
                 };
             }
@@ -1222,13 +1222,13 @@ async function setCapability(
                 error;
 
             log(
-                `WAARSCHUWING  ${label}  ` +
-                `${capabilityId}  ` +
+                `WAARSCHUWING | ${label} | ` +
+                `${capabilityId} | ` +
                 `${errorText(error)}`
             );
 
             if (
-                attempt 
+                attempt <
                 CONFIG.retries
             ) {
 
@@ -1242,16 +1242,16 @@ async function setCapability(
     }
 
     throw new Error(
-        `${label} ${capabilityId} mislukt. ` +
+        `${label}: ${capabilityId} mislukt. ` +
         `${errorText(lastError)}`
     );
 }
 
 
- ============================================================
-  9. BASISACTIES
-  ============================================================
- 
+/* ============================================================
+ * 9. BASISACTIES
+ * ============================================================
+ */
 
 async function setMode(
     deviceId,
@@ -1327,7 +1327,7 @@ async function turnOn(
     if (!isOn) {
 
         log(
-            `${label}  zone uit  inschakelen`
+            `${label} | zone uit | inschakelen`
         );
 
         const onResult =
@@ -1340,7 +1340,7 @@ async function turnOn(
             );
 
         changed =
-            changed 
+            changed ||
             onResult.changed;
 
         switchedOn =
@@ -1364,23 +1364,23 @@ async function turnOn(
         );
 
     changed =
-        changed 
+        changed ||
         targetResult.changed;
 
     return {
         changed,
         switchedOn,
 
-        targetChanged
+        targetChanged:
             targetResult.changed
     };
 }
 
 
- ============================================================
-  10. MASTER WINTER
-  ============================================================
- 
+/* ============================================================
+ * 10. MASTER WINTER
+ * ============================================================
+ */
 
 function isMasterWinterWindowActive() {
 
@@ -1432,14 +1432,14 @@ async function controlWinterMaster(
     }
 
     log(
-        `Master  ${formatTemp(temperature)}  ` +
-        `venster=${windowActive  'ACTIEF'  'UIT'}  ` +
-        `AAN=${isOn}  cyclus=${cycleActive}`
+        `Master | ${formatTemp(temperature)} | ` +
+        `venster=${windowActive ? 'ACTIEF' : 'UIT'} | ` +
+        `AAN=${isOn} | cyclus=${cycleActive}`
     );
 
-    
-      Buiten 1800-0600 hard uitschakelen.
-     
+    /*
+     * Buiten 18:00-06:00 hard uitschakelen.
+     */
 
     if (!windowActive) {
 
@@ -1455,7 +1455,7 @@ async function controlWinterMaster(
                 );
 
             changed =
-                changed 
+                changed ||
                 result.changed;
 
             if (
@@ -1475,7 +1475,7 @@ async function controlWinterMaster(
             );
 
         changed =
-            changed 
+            changed ||
             cycleResult.changed;
 
         return {
@@ -1483,12 +1483,12 @@ async function controlWinterMaster(
         };
     }
 
-    
-      Stoppen vanaf 17,0 °C.
-     
+    /*
+     * Stoppen vanaf 17,0 °C.
+     */
 
     if (
-        temperature =
+        temperature >=
         CONFIG.winter.master.stopAt
     ) {
 
@@ -1504,7 +1504,7 @@ async function controlWinterMaster(
                 );
 
             changed =
-                changed 
+                changed ||
                 result.changed;
 
             if (
@@ -1525,7 +1525,7 @@ async function controlWinterMaster(
             );
 
         changed =
-            changed 
+            changed ||
             cycleResult.changed;
 
         return {
@@ -1533,12 +1533,12 @@ async function controlWinterMaster(
         };
     }
 
-    
-      Nieuwe cyclus starten onder 15,0 °C.
-     
+    /*
+     * Nieuwe cyclus starten onder 15,0 °C.
+     */
 
     if (
-        temperature 
+        temperature <
             CONFIG.winter.master.startBelow &&
         !cycleActive
     ) {
@@ -1558,15 +1558,15 @@ async function controlWinterMaster(
 
             addTimelineEvent(
                 `🔥 Master failsafe gestart, ` +
-                `${formatTemp(temperature)} - ` +
+                `${formatTemp(temperature)} -> ` +
                 `${formatTemp(CONFIG.winter.master.target)}`
             );
         }
     }
 
-    
-      Actieve cyclus doorzetten.
-     
+    /*
+     * Actieve cyclus doorzetten.
+     */
 
     if (cycleActive) {
 
@@ -1581,7 +1581,7 @@ async function controlWinterMaster(
             );
 
         changed =
-            changed 
+            changed ||
             modeResult.changed;
 
         if (
@@ -1601,13 +1601,13 @@ async function controlWinterMaster(
             );
 
         changed =
-            changed 
+            changed ||
             onResult.changed;
 
         if (
             onResult.switchedOn &&
             !timelineEvents.some(
-                event =
+                event =>
                     event.includes(
                         'Master failsafe gestart'
                     )
@@ -1616,7 +1616,7 @@ async function controlWinterMaster(
 
             addTimelineEvent(
                 `🔥 Master verwarming ingeschakeld, ` +
-                `${formatTemp(temperature)} - ` +
+                `${formatTemp(temperature)} -> ` +
                 `${formatTemp(CONFIG.winter.master.target)}`
             );
         }
@@ -1626,9 +1626,9 @@ async function controlWinterMaster(
         };
     }
 
-    
-      Binnen het tijdvenster, maar zonder cyclus.
-     
+    /*
+     * Binnen het tijdvenster, maar zonder cyclus.
+     */
 
     if (isOn) {
 
@@ -1651,16 +1651,16 @@ async function controlWinterMaster(
     }
 
     return {
-        changed
+        changed:
             false
     };
 }
 
 
- ============================================================
-  11. WINTER COMFORTZONE
-  ============================================================
- 
+/* ============================================================
+ * 11. WINTER COMFORTZONE
+ * ============================================================
+ */
 
 async function controlWinterComfortZone(
     deviceId,
@@ -1693,21 +1693,21 @@ async function controlWinterComfortZone(
     ) {
 
         throw new Error(
-            `${label} temperatuur is ongeldig`
+            `${label}: temperatuur is ongeldig`
         );
     }
 
     log(
-        `${label}  ${formatTemp(temperature)}  ` +
+        `${label} | ${formatTemp(temperature)} | ` +
         `AAN=${isOn}`
     );
 
-    
-      Stoppen vanaf bovengrens.
-     
+    /*
+     * Stoppen vanaf bovengrens.
+     */
 
     if (
-        temperature =
+        temperature >=
         settings.stopAt
     ) {
 
@@ -1733,17 +1733,17 @@ async function controlWinterComfortZone(
         }
 
         return {
-            changed
+            changed:
                 false
         };
     }
 
-    
-      Starten onder ondergrens.
-     
+    /*
+     * Starten onder ondergrens.
+     */
 
     if (
-        temperature 
+        temperature <
         settings.startBelow
     ) {
 
@@ -1758,7 +1758,7 @@ async function controlWinterComfortZone(
             );
 
         changed =
-            changed 
+            changed ||
             modeResult.changed;
 
         if (
@@ -1778,7 +1778,7 @@ async function controlWinterComfortZone(
             );
 
         changed =
-            changed 
+            changed ||
             onResult.changed;
 
         if (
@@ -1787,12 +1787,12 @@ async function controlWinterComfortZone(
 
             const icon =
                 label === 'Badkamer'
-                     '🚿'
-                     '🔥';
+                    ? '🚿'
+                    : '🔥';
 
             addTimelineEvent(
                 `${icon} ${label} verwarming gestart, ` +
-                `${formatTemp(temperature)} - ` +
+                `${formatTemp(temperature)} -> ` +
                 `${formatTemp(settings.target)}`
             );
         }
@@ -1802,9 +1802,9 @@ async function controlWinterComfortZone(
         };
     }
 
-    
-      Binnen hysterese huidige toestand behouden.
-     
+    /*
+     * Binnen hysterese huidige toestand behouden.
+     */
 
     if (isOn) {
 
@@ -1816,16 +1816,16 @@ async function controlWinterComfortZone(
     }
 
     return {
-        changed
+        changed:
             false
     };
 }
 
 
- ============================================================
-  12. SLAAPKAMERS
-  ============================================================
- 
+/* ============================================================
+ * 12. SLAAPKAMERS
+ * ============================================================
+ */
 
 function isBedroomWindowActive() {
 
@@ -1858,8 +1858,8 @@ async function controlWinterBedroom(
         ) === true;
 
     log(
-        `${label}  venster=` +
-        `${windowActive  'ACTIEF'  'UIT'}`
+        `${label} | venster=` +
+        `${windowActive ? 'ACTIEF' : 'UIT'}`
     );
 
     if (!windowActive) {
@@ -1885,7 +1885,7 @@ async function controlWinterBedroom(
         }
 
         return {
-            changed
+            changed:
                 false
         };
     }
@@ -1898,10 +1898,10 @@ async function controlWinterBedroom(
 }
 
 
- ============================================================
-  13. BADKAMER
-  ============================================================
- 
+/* ============================================================
+ * 13. BADKAMER
+ * ============================================================
+ */
 
 function isBathroomEveningWindowActive() {
 
@@ -1924,7 +1924,7 @@ function isBathroomMorningWindowActive() {
 function isBathroomWindowActive() {
 
     return (
-        isBathroomEveningWindowActive() 
+        isBathroomEveningWindowActive() ||
         isBathroomMorningWindowActive()
     );
 }
@@ -1945,9 +1945,9 @@ function minutesUntilLocalTime(
     let difference =
         target - current;
 
-    if (difference = 0) {
+    if (difference <= 0) {
         difference +=
-            24  60;
+            24 * 60;
     }
 
     return difference;
@@ -1964,38 +1964,38 @@ function getBathroomHeatingRate(
     if (!validTemperature(outsideTemperature)) {
 
         return {
-            rate
+            rate:
                 settings.fallbackHeatingRate,
 
-            source
+            source:
                 'fallback'
         };
     }
 
     if (
-        outsideTemperature =
+        outsideTemperature <=
         settings.heatingRateColdUntil
     ) {
 
         return {
-            rate
+            rate:
                 settings.heatingRateCold,
 
-            source
+            source:
                 'cold'
         };
     }
 
     if (
-        outsideTemperature =
+        outsideTemperature >=
         settings.heatingRateWarmFrom
     ) {
 
         return {
-            rate
+            rate:
                 settings.heatingRateWarm,
 
-            source
+            source:
                 'warm'
         };
     }
@@ -2004,22 +2004,22 @@ function getBathroomHeatingRate(
         (
             outsideTemperature -
             settings.heatingRateColdUntil
-        ) 
+        ) /
         (
             settings.heatingRateWarmFrom -
             settings.heatingRateColdUntil
         );
 
     return {
-        rate
+        rate:
             settings.heatingRateCold +
-            position 
+            position *
             (
                 settings.heatingRateWarm -
                 settings.heatingRateCold
             ),
 
-        source
+        source:
             'interpolated'
     };
 }
@@ -2037,13 +2037,13 @@ function getBathroomPrediction(
     if (!validTemperature(temperature)) {
 
         return {
-            valid
+            valid:
                 false,
 
-            shouldPreheat
+            shouldPreheat:
                 false,
 
-            reason
+            reason:
                 'ongeldige badkamertemperatuur'
         };
     }
@@ -2067,41 +2067,41 @@ function getBathroomPrediction(
         );
 
     if (
-        gap =
+        gap <=
         settings.predictiveMinGap
     ) {
 
         return {
-            valid
+            valid:
                 true,
 
-            shouldPreheat
+            shouldPreheat:
                 false,
 
             gap,
 
-            heatingRate
+            heatingRate:
                 rateResult.rate,
 
-            heatingRateSource
+            heatingRateSource:
                 rateResult.source,
 
             minutesUntilTarget,
 
-            estimatedHeatingMinutes
+            estimatedHeatingMinutes:
                 0,
 
-            requiredMinutes
+            requiredMinutes:
                 0,
 
-            reason
+            reason:
                 'doeltemperatuur praktisch bereikt'
         };
     }
 
     const estimatedHeatingMinutes =
-        gap 
-        rateResult.rate 
+        gap /
+        rateResult.rate *
         60;
 
     const requiredMinutes =
@@ -2114,35 +2114,35 @@ function getBathroomPrediction(
         );
 
     return {
-        valid
+        valid:
             true,
 
-        shouldPreheat
-            minutesUntilTarget =
+        shouldPreheat:
+            minutesUntilTarget <=
             requiredMinutes,
 
         gap,
 
-        heatingRate
+        heatingRate:
             rateResult.rate,
 
-        heatingRateSource
+        heatingRateSource:
             rateResult.source,
 
         minutesUntilTarget,
 
-        estimatedHeatingMinutes
+        estimatedHeatingMinutes:
             Math.ceil(
                 estimatedHeatingMinutes
             ),
 
         requiredMinutes,
 
-        reason
-            minutesUntilTarget =
+        reason:
+            minutesUntilTarget <=
             requiredMinutes
-                 'voorspellende start nodig'
-                 'nog te vroeg voor voorverwarming'
+                ? 'voorspellende start nodig'
+                : 'nog te vroeg voor voorverwarming'
     };
 }
 
@@ -2186,7 +2186,7 @@ async function controlWinterBathroom(
 
     if (!validTemperature(temperature)) {
         throw new Error(
-            'Badkamer temperatuur is ongeldig'
+            'Badkamer: temperatuur is ongeldig'
         );
     }
 
@@ -2202,21 +2202,21 @@ async function controlWinterBathroom(
         prediction.shouldPreheat;
 
     log(
-        `Badkamer  ${formatTemp(temperature)}  ` +
-        `buiten=${formatTemp(outsideTemperature)}  ` +
-        `tijd=${clock.shortTime}  ` +
-        `avond=${eveningActive  'ACTIEF'  'UIT'}  ` +
-        `ochtend=${morningActive  'ACTIEF'  'UIT'}  ` +
-        `predictief=${predictiveNight  'ACTIEF'  'UIT'}  ` +
-        `snelheid=${prediction.heatingRate.toFixed(2)} °Cu  ` +
+        `Badkamer | ${formatTemp(temperature)} | ` +
+        `buiten=${formatTemp(outsideTemperature)} | ` +
+        `tijd=${clock.shortTime} | ` +
+        `avond=${eveningActive ? 'ACTIEF' : 'UIT'} | ` +
+        `ochtend=${morningActive ? 'ACTIEF' : 'UIT'} | ` +
+        `predictief=${predictiveNight ? 'ACTIEF' : 'UIT'} | ` +
+        `snelheid=${prediction.heatingRate.toFixed(2)} °C/u | ` +
         `AAN=${isOn}`
     );
 
-    
-      Regulier comfort tussen 1800-2130 en 0600-0730.
-     
+    /*
+     * Regulier comfort tussen 18:00-21:30 en 06:00-07:30.
+     */
     if (
-        eveningActive 
+        eveningActive ||
         morningActive
     ) {
 
@@ -2227,16 +2227,16 @@ async function controlWinterBathroom(
         );
     }
 
-    
-      Nacht vóór het predictieve startmoment altijd uit.
-     
+    /*
+     * Nacht vóór het predictieve startmoment: altijd uit.
+     */
     if (!predictiveNight) {
 
         log(
-            `Badkamer nacht  uit tot predictieve start  ` +
-            `0600 over ${prediction.minutesUntilTarget} min  ` +
-            `geschat nodig=${prediction.requiredMinutes} min  ` +
-            `model=${prediction.heatingRate.toFixed(2)} °Cu`
+            `Badkamer nacht | uit tot predictieve start | ` +
+            `06:00 over ${prediction.minutesUntilTarget} min | ` +
+            `geschat nodig=${prediction.requiredMinutes} min | ` +
+            `model=${prediction.heatingRate.toFixed(2)} °C/u`
         );
 
         if (isOn) {
@@ -2251,7 +2251,7 @@ async function controlWinterBathroom(
 
                 addTimelineEvent(
                     `🌙 Badkamer uit voor nacht; ` +
-                    `predictieve verwarming richting 0600`
+                    `predictieve verwarming richting 06:00`
                 );
             }
 
@@ -2259,16 +2259,16 @@ async function controlWinterBathroom(
         }
 
         return {
-            changed
+            changed:
                 false
         };
     }
 
-    
-      Tijdens de predictieve fase stoppen op 21,2 °C.
-     
+    /*
+     * Tijdens de predictieve fase stoppen op 21,2 °C.
+     */
     if (
-        temperature =
+        temperature >=
         settings.stopAt
     ) {
 
@@ -2292,30 +2292,30 @@ async function controlWinterBathroom(
         }
 
         return {
-            changed
+            changed:
                 false
         };
     }
 
-    
-      Is de zone eerder tijdens de predictieve fase gestopt,
-      dan pas opnieuw starten onder 20,5 °C.
-     
+    /*
+     * Is de zone eerder tijdens de predictieve fase gestopt,
+     * dan pas opnieuw starten onder 20,5 °C.
+     */
     if (
         !isOn &&
-        temperature =
+        temperature >=
             settings.predictiveRestartBelow
     ) {
 
         log(
-            `Badkamer predictief  uit blijven; ` +
-            `${formatTemp(temperature)} = ` +
+            `Badkamer predictief | uit blijven; ` +
+            `${formatTemp(temperature)} >= ` +
             `herstartgrens ` +
             `${formatTemp(settings.predictiveRestartBelow)}`
         );
 
         return {
-            changed
+            changed:
                 false
         };
     }
@@ -2331,7 +2331,7 @@ async function controlWinterBathroom(
         );
 
     changed =
-        changed 
+        changed ||
         modeResult.changed;
 
     if (modeResult.changed) {
@@ -2349,17 +2349,17 @@ async function controlWinterBathroom(
         );
 
     changed =
-        changed 
+        changed ||
         onResult.changed;
 
     if (onResult.switchedOn) {
 
         addTimelineEvent(
             `⏱️ Badkamer voorspellend gestart, ` +
-            `${formatTemp(temperature)} - ` +
-            `${formatTemp(settings.target)} voor 0600  ` +
-            `buiten ${formatTemp(outsideTemperature)}  ` +
-            `${prediction.heatingRate.toFixed(2)} °Cu  ` +
+            `${formatTemp(temperature)} -> ` +
+            `${formatTemp(settings.target)} voor 06:00 | ` +
+            `buiten ${formatTemp(outsideTemperature)} | ` +
+            `${prediction.heatingRate.toFixed(2)} °C/u | ` +
             `${prediction.requiredMinutes} min nodig`
         );
     }
@@ -2370,10 +2370,10 @@ async function controlWinterBathroom(
 }
 
 
- ============================================================
-  14. ZOMER
-  ============================================================
- 
+/* ============================================================
+ * 14. ZOMER
+ * ============================================================
+ */
 
 async function activateSummerZone(
     deviceId,
@@ -2400,8 +2400,8 @@ async function activateSummerZone(
         ) === true;
 
     log(
-        `${label} zomer  ` +
-        `${formatTemp(temperature)}  ` +
+        `${label} zomer | ` +
+        `${formatTemp(temperature)} | ` +
         `doel=${formatTemp(target)}`
     );
 
@@ -2416,7 +2416,7 @@ async function activateSummerZone(
         );
 
     changed =
-        changed 
+        changed ||
         modeResult.changed;
 
     if (
@@ -2436,7 +2436,7 @@ async function activateSummerZone(
         );
 
     changed =
-        changed 
+        changed ||
         onResult.changed;
 
     if (
@@ -2446,7 +2446,7 @@ async function activateSummerZone(
 
         addTimelineEvent(
             `❄️ ${label} koeling gestart, ` +
-            `${formatTemp(temperature)} - ` +
+            `${formatTemp(temperature)} -> ` +
             `${formatTemp(target)}`
         );
     }
@@ -2457,10 +2457,10 @@ async function activateSummerZone(
 }
 
 
- ============================================================
-  15. VAKANTIE
-  ============================================================
- 
+/* ============================================================
+ * 15. VAKANTIE
+ * ============================================================
+ */
 
 async function controlVacationZone(
     deviceId,
@@ -2492,22 +2492,22 @@ async function controlVacationZone(
     ) {
 
         throw new Error(
-            `${label} temperatuur is ongeldig`
+            `${label}: temperatuur is ongeldig`
         );
     }
 
     log(
-        `${label} vakantie  ` +
-        `${formatTemp(temperature)}  ` +
+        `${label} vakantie | ` +
+        `${formatTemp(temperature)} | ` +
         `AAN=${isOn}`
     );
 
-    
-      Vanaf 12,5 °C uitschakelen.
-     
+    /*
+     * Vanaf 12,5 °C uitschakelen.
+     */
 
     if (
-        temperature =
+        temperature >=
         CONFIG.vacation.stopAt
     ) {
 
@@ -2533,17 +2533,17 @@ async function controlVacationZone(
         }
 
         return {
-            changed
+            changed:
                 false
         };
     }
 
-    
-      Onder 12,0 °C starten.
-     
+    /*
+     * Onder 12,0 °C starten.
+     */
 
     if (
-        temperature 
+        temperature <
         CONFIG.vacation.startBelow
     ) {
 
@@ -2558,7 +2558,7 @@ async function controlVacationZone(
             );
 
         changed =
-            changed 
+            changed ||
             modeResult.changed;
 
         if (
@@ -2578,7 +2578,7 @@ async function controlVacationZone(
             );
 
         changed =
-            changed 
+            changed ||
             onResult.changed;
 
         if (
@@ -2587,7 +2587,7 @@ async function controlVacationZone(
 
             addTimelineEvent(
                 `🛡️ Vakantie-failsafe ${label} gestart, ` +
-                `${formatTemp(temperature)} - ` +
+                `${formatTemp(temperature)} -> ` +
                 `${formatTemp(CONFIG.vacation.target)}`
             );
         }
@@ -2597,9 +2597,9 @@ async function controlVacationZone(
         };
     }
 
-    
-      Tussen 12,0 en 12,5 °C huidige toestand behouden.
-     
+    /*
+     * Tussen 12,0 en 12,5 °C huidige toestand behouden.
+     */
 
     if (isOn) {
 
@@ -2614,7 +2614,7 @@ async function controlVacationZone(
             );
 
         changed =
-            changed 
+            changed ||
             modeResult.changed;
 
         if (
@@ -2634,7 +2634,7 @@ async function controlVacationZone(
             );
 
         changed =
-            changed 
+            changed ||
             onResult.changed;
 
         return {
@@ -2643,16 +2643,16 @@ async function controlVacationZone(
     }
 
     return {
-        changed
+        changed:
             false
     };
 }
 
 
- ============================================================
-  16. 1800 PUSH
-  ============================================================
- 
+/* ============================================================
+ * 16. 18:00 PUSH
+ * ============================================================
+ */
 
 function isPushWindow(
     date = new Date()
@@ -2674,19 +2674,19 @@ function isPushWindow(
             CONFIG.push.end
         );
 
-    
-      1800 inclusief, 1815 exclusief.
-     
-      Bij runs iedere vijf minuten zijn dus geldig
-     
-      1800
-      1805
-      1810
-     
+    /*
+     * 18:00 inclusief, 18:15 exclusief.
+     *
+     * Bij runs iedere vijf minuten zijn dus geldig:
+     *
+     * 18:00
+     * 18:05
+     * 18:10
+     */
 
     return (
-        current = start &&
-        current  end
+        current >= start &&
+        current < end
     );
 }
 
@@ -2696,7 +2696,7 @@ async function preparePushMessage(
 ) {
 
     if (
-        !CONFIG.push.enabled 
+        !CONFIG.push.enabled ||
         !isPushWindow()
     ) {
         return;
@@ -2710,7 +2710,7 @@ async function preparePushMessage(
     ) {
 
         log(
-            '1800 push overgeslagen wegens vakantie'
+            '18:00 push overgeslagen wegens vakantie'
         );
 
         return;
@@ -2726,7 +2726,7 @@ async function preparePushMessage(
     ) {
 
         log(
-            '1800 push is vandaag al voorbereid'
+            '18:00 push is vandaag al voorbereid'
         );
 
         return;
@@ -2737,34 +2737,34 @@ async function preparePushMessage(
     const definitions = [
 
         {
-            id
+            id:
                 CONFIG.devices.master,
 
-            label
+            label:
                 'Master'
         },
 
         {
-            id
+            id:
                 CONFIG.devices.abel,
 
-            label
+            label:
                 'Abel'
         },
 
         {
-            id
+            id:
                 CONFIG.devices.hugo,
 
-            label
+            label:
                 'Hugo'
         },
 
         {
-            id
+            id:
                 CONFIG.devices.badkamer,
 
-            label
+            label:
                 'Badkamer'
         }
     ];
@@ -2793,16 +2793,16 @@ async function preparePushMessage(
 
         activeZones.push({
 
-            label
+            label:
                 zone.label,
 
-            temperature
+            temperature:
                 capabilityValue(
                     device,
                     'measure_temperature'
                 ),
 
-            target
+            target:
                 capabilityValue(
                     device,
                     'target_temperature'
@@ -2815,7 +2815,7 @@ async function preparePushMessage(
     ) {
 
         log(
-            '1800  geen actieve zones  geen push'
+            '18:00 | geen actieve zones | geen push'
         );
 
         return;
@@ -2827,18 +2827,18 @@ async function preparePushMessage(
 
     const icon =
         isWinter
-             '🔥'
-             '❄️';
+            ? '🔥'
+            : '❄️';
 
     const action =
         isWinter
-             'verwarming'
-             'koeling';
+            ? 'verwarming'
+            : 'koeling';
 
     const zoneText =
         activeZones
             .map(
-                zone = {
+                zone => {
 
                     const parts = [
                         zone.label
@@ -2874,9 +2874,9 @@ async function preparePushMessage(
             .join(', ');
 
     const message =
-        `${icon} Airzone boven ` +
+        `${icon} Airzone boven: ` +
         `${action} actief. ` +
-        `Zones ${zoneText}. ` +
+        `Zones: ${zoneText}. ` +
         `[${date}]`;
 
     await setLogicVariable(
@@ -2890,15 +2890,15 @@ async function preparePushMessage(
     );
 
     log(
-        `1800 push voorbereid  ${message}`
+        `18:00 push voorbereid | ${message}`
     );
 }
 
 
- ============================================================
-  17. VEILIGE UITVOERING
-  ============================================================
- 
+/* ============================================================
+ * 17. VEILIGE UITVOERING
+ * ============================================================
+ */
 
 async function runSafely(
     label,
@@ -2911,9 +2911,9 @@ async function runSafely(
             await action();
 
         return (
-            result 
+            result ||
             {
-                changed
+                changed:
                     false
             }
         );
@@ -2921,23 +2921,23 @@ async function runSafely(
     } catch (error) {
 
         const message =
-            `${label} ${errorText(error)}`;
+            `${label}: ${errorText(error)}`;
 
         console.error(
-            `FOUT  ${message}`
+            `FOUT | ${message}`
         );
 
         addTimelineEvent(
-            `⚠️ Airzone-fout ${message}`
+            `⚠️ Airzone-fout: ${message}`
         );
 
         await refreshAllDevices();
 
         return {
-            changed
+            changed:
                 false,
 
-            failed
+            failed:
                 true
         };
     }
@@ -2959,10 +2959,10 @@ async function afterZone(result) {
 }
 
 
- ============================================================
-  18. MAIN
-  ============================================================
- 
+/* ============================================================
+ * 18. MAIN
+ * ============================================================
+ */
 
 async function main() {
 
@@ -2983,8 +2983,8 @@ async function main() {
     log(
         `Lokale tijd=` +
         `${localClock.displayDate} ` +
-        `${localClock.displayTime}  ` +
-        `timezone=${localClock.timezone}  ` +
+        `${localClock.displayTime} | ` +
+        `timezone=${localClock.timezone} | ` +
         `UTC=${new Date().toISOString()}`
     );
 
@@ -3039,7 +3039,7 @@ async function main() {
     );
 
     log(
-        `Devices OK  ` +
+        `Devices OK | ` +
         `${master.name}, ` +
         `${abel.name}, ` +
         `${hugo.name}, ` +
@@ -3057,8 +3057,8 @@ async function main() {
         true;
 
     log(
-        `Modus=${mode.toUpperCase()}  ` +
-        `Vakantie=${vacation  'JA'  'NEE'}`
+        `Modus=${mode.toUpperCase()} | ` +
+        `Vakantie=${vacation ? 'JA' : 'NEE'}`
     );
 
     log(
@@ -3067,20 +3067,20 @@ async function main() {
     );
 
     log(
-        `Vensters  Master=` +
+        `Vensters | Master=` +
         `${isMasterWinterWindowActive()
-             'ACTIEF'
-             'UIT'
-        }  ` +
+            ? 'ACTIEF'
+            : 'UIT'
+        } | ` +
         `Slaapkamers=` +
         `${isBedroomWindowActive()
-             'ACTIEF'
-             'UIT'
-        }  ` +
+            ? 'ACTIEF'
+            : 'UIT'
+        } | ` +
         `Badkamer=` +
         `${isBathroomWindowActive()
-             'ACTIEF'
-             'UIT'
+            ? 'ACTIEF'
+            : 'UIT'
         }`
     );
 
@@ -3098,13 +3098,13 @@ async function main() {
         addTimelineEvent(
             mode === 'winter' &&
             !vacation
-                 '🔥 Winterregeling geactiveerd'
-                 '⏹️ Winterregeling gedeactiveerd'
+                ? '🔥 Winterregeling geactiveerd'
+                : '⏹️ Winterregeling gedeactiveerd'
         );
     }
 
     if (
-        mode !== 'winter' 
+        mode !== 'winter' ||
         vacation
     ) {
 
@@ -3115,10 +3115,10 @@ async function main() {
     }
 
 
-     ========================================================
-      VAKANTIE
-      ========================================================
-     
+    /* ========================================================
+     * VAKANTIE
+     * ========================================================
+     */
 
     if (vacation) {
 
@@ -3145,34 +3145,34 @@ async function main() {
         const zones = [
 
             {
-                id
+                id:
                     CONFIG.devices.master,
 
-                label
+                label:
                     'Master'
             },
 
             {
-                id
+                id:
                     CONFIG.devices.abel,
 
-                label
+                label:
                     'Abel'
             },
 
             {
-                id
+                id:
                     CONFIG.devices.hugo,
 
-                label
+                label:
                     'Hugo'
             },
 
             {
-                id
+                id:
                     CONFIG.devices.badkamer,
 
-                label
+                label:
                     'Badkamer'
             }
         ];
@@ -3185,7 +3185,7 @@ async function main() {
             const result =
                 await runSafely(
                     zone.label,
-                    async () =
+                    async () =>
                         await controlVacationZone(
                             zone.id,
                             zone.label
@@ -3197,10 +3197,10 @@ async function main() {
     }
 
 
-     ========================================================
-      WINTER
-      ========================================================
-     
+    /* ========================================================
+     * WINTER
+     * ========================================================
+     */
 
     else if (
         mode === 'winter'
@@ -3229,7 +3229,7 @@ async function main() {
         const masterResult =
             await runSafely(
                 'Master',
-                async () =
+                async () =>
                     await controlWinterMaster(
                         logic
                     )
@@ -3242,7 +3242,7 @@ async function main() {
         const abelResult =
             await runSafely(
                 'Abel',
-                async () =
+                async () =>
                     await controlWinterBedroom(
                         CONFIG.devices.abel,
                         'Abel',
@@ -3257,7 +3257,7 @@ async function main() {
         const hugoResult =
             await runSafely(
                 'Hugo',
-                async () =
+                async () =>
                     await controlWinterBedroom(
                         CONFIG.devices.hugo,
                         'Hugo',
@@ -3272,7 +3272,7 @@ async function main() {
         const bathroomResult =
             await runSafely(
                 'Badkamer',
-                async () =
+                async () =>
                     await controlWinterBathroom(
                         logic
                     )
@@ -3284,10 +3284,10 @@ async function main() {
     }
 
 
-     ========================================================
-      ZOMER
-      ========================================================
-     
+    /* ========================================================
+     * ZOMER
+     * ========================================================
+     */
 
     else {
 
@@ -3315,54 +3315,54 @@ async function main() {
             );
         }
 
-        
-          De bestaande zomerwerking is bewust 247 zolang
-          Airzone modus op Zomer staat.
-         
+        /*
+         * De bestaande zomerwerking is bewust 24/7 zolang
+         * Airzone modus op Zomer staat.
+         */
 
         const zones = [
 
             {
-                id
+                id:
                     CONFIG.devices.master,
 
-                label
+                label:
                     'Master',
 
-                target
+                target:
                     CONFIG.summer.master
             },
 
             {
-                id
+                id:
                     CONFIG.devices.abel,
 
-                label
+                label:
                     'Abel',
 
-                target
+                target:
                     CONFIG.summer.abel
             },
 
             {
-                id
+                id:
                     CONFIG.devices.hugo,
 
-                label
+                label:
                     'Hugo',
 
-                target
+                target:
                     CONFIG.summer.hugo
             },
 
             {
-                id
+                id:
                     CONFIG.devices.badkamer,
 
-                label
+                label:
                     'Badkamer',
 
-                target
+                target:
                     CONFIG.summer.badkamer
             }
         ];
@@ -3375,7 +3375,7 @@ async function main() {
             const result =
                 await runSafely(
                     zone.label,
-                    async () =
+                    async () =>
                         await activateSummerZone(
                             zone.id,
                             zone.label,
@@ -3388,10 +3388,10 @@ async function main() {
     }
 
 
-     ========================================================
-      PUSH EN TIMELINE
-      ========================================================
-     
+    /* ========================================================
+     * PUSH EN TIMELINE
+     * ========================================================
+     */
 
     await preparePushMessage(
         logic
@@ -3402,10 +3402,10 @@ async function main() {
     );
 
 
-     ========================================================
-      RESULTAAT
-      ========================================================
-     
+    /* ========================================================
+     * RESULTAAT
+     * ========================================================
+     */
 
     const runtimeMs =
         Date.now() -
@@ -3419,10 +3419,10 @@ async function main() {
     );
 
     log(
-        `KLAAR  ${mode.toUpperCase()}  ` +
-        `${vacation  'VAKANTIE'  'NORMAAL'}  ` +
-        `writes=${writesThisRun}  ` +
-        `timeline=${timelineEvents.length}  ` +
+        `KLAAR | ${mode.toUpperCase()} | ` +
+        `${vacation ? 'VAKANTIE' : 'NORMAAL'} | ` +
+        `writes=${writesThisRun} | ` +
+        `timeline=${timelineEvents.length} | ` +
         `runtime=${runtimeMs} ms`
     );
 
@@ -3432,47 +3432,47 @@ async function main() {
 
     return {
 
-        success
+        success:
             true,
 
-        version
+        version:
             CONFIG.version,
 
-        timezone
+        timezone:
             CONFIG.timezone,
 
-        localDate
+        localDate:
             finishClock.dateKey,
 
-        localTime
+        localTime:
             finishClock.displayTime,
 
-        utcTime
+        utcTime:
             new Date().toISOString(),
 
         mode,
 
         vacation,
 
-        windows {
+        windows: {
 
-            master
+            master:
                 isMasterWinterWindowActive(),
 
-            bedrooms
+            bedrooms:
                 isBedroomWindowActive(),
 
-            bathroom
+            bathroom:
                 isBathroomWindowActive(),
 
-            push
+            push:
                 isPushWindow()
         },
 
-        writes
+        writes:
             writesThisRun,
 
-        timelineEvents
+        timelineEvents:
             [...timelineEvents],
 
         runtimeMs
@@ -3480,10 +3480,10 @@ async function main() {
 }
 
 
- ============================================================
-  19. START
-  ============================================================
- 
+/* ============================================================
+ * 19. START
+ * ============================================================
+ */
 
 try {
 
@@ -3492,27 +3492,27 @@ try {
 } catch (error) {
 
     console.error(
-        `AIRZONE CONTROLLER MISLUKT  ` +
+        `AIRZONE CONTROLLER MISLUKT | ` +
         `${errorText(error)}`
     );
 
     return {
 
-        success
+        success:
             false,
 
-        timezone
+        timezone:
             CONFIG.timezone,
 
-        localTime
+        localTime:
             getLocalClock()
                 .displayTime,
 
-        utcTime
+        utcTime:
             new Date()
                 .toISOString(),
 
-        error
+        error:
             errorText(error)
     };
 }
