@@ -1,6 +1,6 @@
 /**
  * ============================================================
- * AIRZONE BOVEN V2.2
+ * AIRZONE BOVEN V2.3
  * FAST-PATH CONTROLLER MET EUROPE/AMSTERDAM TIMEZONE
  * ============================================================
  *
@@ -57,6 +57,18 @@
  * - Timeline via Airzone Timeline bericht
  * - Alleen betekenisvolle acties
  *
+ * HANDMATIGE OVERRIDE (V2.3, alleen winter)
+ *
+ * - Zet je een zone buiten zijn programma zelf aan
+ *   (thermostaat of Airzone-app), dan laat het script
+ *   die zone volledig met rust
+ * - Master, Abel en Hugo: tot 18:00
+ * - Badkamer: tot 06:00 of 18:00, wat het eerst komt
+ * - Zet je de zone zelf weer uit, dan stopt de override direct
+ * - Vakantie en zomer beëindigen alle overrides
+ * - Vereist tekstvariabele "Airzone override state"
+ *   (mag leeg zijn); zonder die variabele is de override uit
+ *
  * FAST PATH
  *
  * - Geen writes als alles goed staat
@@ -74,7 +86,7 @@
 const CONFIG = {
 
     version:
-        '2.2',
+        '2.3',
 
     timezone:
         'Europe/Amsterdam',
@@ -294,6 +306,25 @@ const CONFIG = {
 
         aggregateActions:
             true
+    },
+
+    override: {
+
+        enabled:
+            true,
+
+        /*
+         * Tekstvariabele waarin het script per zone onthoudt
+         * of het de zone zelf aan of uit heeft gelaten.
+         */
+        stateVariable:
+            'Airzone override state',
+
+        /*
+         * Vangnet: een override duurt nooit langer dan dit.
+         */
+        maxHours:
+            24
     },
 
     timing: {
@@ -2896,6 +2927,442 @@ async function preparePushMessage(
 
 
 /* ============================================================
+ * 16A. HANDMATIGE OVERRIDE
+ * ============================================================
+ *
+ * Werking:
+ *
+ * - Na iedere run onthoudt het script per zone of die aan of
+ *   uit stond (lastOn).
+ * - Staat een zone nu aan, terwijl het script hem de vorige run
+ *   uit liet en het programma van die zone niet actief is, dan
+ *   heeft iemand hem handmatig aangezet: override.
+ * - Tijdens een override slaat het script de zone volledig over.
+ * - De override stopt zodra het programma van de zone start,
+ *   de zone weer uit staat of de maximale duur is bereikt.
+ */
+
+const OVERRIDE_ZONES = [
+    'Master',
+    'Abel',
+    'Hugo',
+    'Badkamer'
+];
+
+
+function isZoneProgramActive(label) {
+
+    switch (label) {
+
+        case 'Master':
+            return isMasterWinterWindowActive();
+
+        case 'Abel':
+        case 'Hugo':
+            return isBedroomWindowActive();
+
+        case 'Badkamer':
+            return isBathroomWindowActive();
+
+        default:
+            return true;
+    }
+}
+
+
+function overrideEndText(label) {
+
+    if (label === 'Badkamer') {
+
+        return (
+            `${CONFIG.winter.bathroom.morningTargetTime} of ` +
+            `${CONFIG.winter.bathroom.eveningFrom}`
+        );
+    }
+
+    if (label === 'Master') {
+        return CONFIG.winter.master.activeFrom;
+    }
+
+    return CONFIG.winter.bedrooms.activeFrom;
+}
+
+
+function emptyOverrideZone() {
+
+    return {
+        lastOn:
+            null,
+
+        override:
+            null
+    };
+}
+
+
+function parseOverrideData(raw) {
+
+    const data = {
+        zones: {}
+    };
+
+    let parsed = null;
+
+    if (
+        typeof raw === 'string' &&
+        raw.trim() !== ''
+    ) {
+
+        try {
+            parsed = JSON.parse(raw);
+        } catch (error) {
+            log(
+                'Override | state ongeldig; opnieuw begonnen'
+            );
+        }
+    }
+
+    for (const label of OVERRIDE_ZONES) {
+
+        const input =
+            parsed?.zones?.[label];
+
+        const zone =
+            emptyOverrideZone();
+
+        if (
+            typeof input?.lastOn === 'boolean'
+        ) {
+            zone.lastOn = input.lastOn;
+        }
+
+        const startedAt =
+            Number(input?.override?.startedAt);
+
+        if (
+            Number.isFinite(startedAt) &&
+            startedAt > 0
+        ) {
+            zone.override = {
+                startedAt
+            };
+        }
+
+        data.zones[label] = zone;
+    }
+
+    return data;
+}
+
+
+async function loadOverrideState() {
+
+    if (!CONFIG.override.enabled) {
+
+        return {
+            enabled:
+                false
+        };
+    }
+
+    const variable =
+        findLogicVariable(
+            await getLogicVariables(),
+            CONFIG.override.stateVariable
+        );
+
+    if (!variable) {
+
+        log(
+            `WAARSCHUWING | Override uit: maak tekstvariabele ` +
+            `"${CONFIG.override.stateVariable}" aan`
+        );
+
+        return {
+            enabled:
+                false
+        };
+    }
+
+    if (variable.type !== 'string') {
+
+        log(
+            `WAARSCHUWING | Override uit: ` +
+            `"${CONFIG.override.stateVariable}" moet een ` +
+            `tekstvariabele zijn`
+        );
+
+        return {
+            enabled:
+                false
+        };
+    }
+
+    return {
+        enabled:
+            true,
+
+        variable,
+
+        data:
+            parseOverrideData(variable.value)
+    };
+}
+
+
+async function saveOverrideState(state) {
+
+    if (!state.enabled) {
+        return;
+    }
+
+    await setLogicVariable(
+        state.variable,
+        JSON.stringify(state.data)
+    );
+}
+
+
+function endOverride(
+    label,
+    zone,
+    reason
+) {
+
+    zone.override =
+        null;
+
+    addTimelineEvent(
+        `↩️ ${label} override beëindigd, ${reason}`
+    );
+}
+
+
+/**
+ * Geeft true als de zone deze run overgeslagen moet worden.
+ */
+function checkOverride(
+    label,
+    deviceId,
+    state
+) {
+
+    if (!state.enabled) {
+        return false;
+    }
+
+    const zone =
+        state.data.zones[label];
+
+    const device =
+        getCachedDevice(
+            deviceId,
+            label
+        );
+
+    const isOn =
+        capabilityValue(
+            device,
+            'onoff'
+        ) === true;
+
+    const programActive =
+        isZoneProgramActive(label);
+
+    if (zone.override) {
+
+        const hours =
+            (Date.now() - zone.override.startedAt) /
+            3600000;
+
+        if (programActive) {
+
+            endOverride(
+                label,
+                zone,
+                'programma neemt het over'
+            );
+
+            return false;
+        }
+
+        if (!isOn) {
+
+            endOverride(
+                label,
+                zone,
+                'zone handmatig uitgezet'
+            );
+
+            return false;
+        }
+
+        if (hours >= CONFIG.override.maxHours) {
+
+            endOverride(
+                label,
+                zone,
+                `maximale duur van ${CONFIG.override.maxHours} uur bereikt`
+            );
+
+            return false;
+        }
+
+        log(
+            `${label} | OVERRIDE actief sinds ` +
+            `${hours.toFixed(1)} uur | ` +
+            `${formatTemp(capabilityValue(device, 'measure_temperature'))} | ` +
+            `doel=${formatTemp(capabilityValue(device, 'target_temperature'))} | ` +
+            `script blijft eraf tot ${overrideEndText(label)}`
+        );
+
+        return true;
+    }
+
+    if (
+        isOn &&
+        !programActive &&
+        zone.lastOn === false
+    ) {
+
+        zone.override = {
+            startedAt:
+                Date.now()
+        };
+
+        addTimelineEvent(
+            `✋ ${label} handmatig aangezet; ` +
+            `override tot ${overrideEndText(label)}`
+        );
+
+        return true;
+    }
+
+    return false;
+}
+
+
+function recordZoneState(
+    label,
+    deviceId,
+    state
+) {
+
+    if (!state.enabled) {
+        return;
+    }
+
+    const device =
+        deviceCache[deviceId];
+
+    if (!device) {
+        return;
+    }
+
+    state.data.zones[label].lastOn =
+        capabilityValue(
+            device,
+            'onoff'
+        ) === true;
+}
+
+
+/**
+ * Buiten de winterregeling geen overrides en geen
+ * detectie: lastOn wordt gewist zodat de eerste winterrun
+ * na zomer of vakantie niets ten onrechte als override ziet.
+ */
+function resetOverrides(
+    state,
+    reason
+) {
+
+    if (!state.enabled) {
+        return;
+    }
+
+    for (const label of OVERRIDE_ZONES) {
+
+        const zone =
+            state.data.zones[label];
+
+        if (zone.override) {
+
+            endOverride(
+                label,
+                zone,
+                reason
+            );
+        }
+
+        zone.lastOn =
+            null;
+    }
+}
+
+
+async function runWinterZone(
+    label,
+    deviceId,
+    state,
+    action
+) {
+
+    let skip =
+        false;
+
+    try {
+
+        skip =
+            checkOverride(
+                label,
+                deviceId,
+                state
+            );
+
+    } catch (error) {
+
+        log(
+            `WAARSCHUWING | ${label} | override-check mislukt: ` +
+            `${errorText(error)}`
+        );
+    }
+
+    const result =
+        skip
+            ? {
+                changed:
+                    false
+            }
+            : await runSafely(
+                label,
+                action
+            );
+
+    recordZoneState(
+        label,
+        deviceId,
+        state
+    );
+
+    return result;
+}
+
+
+function activeOverrides(state) {
+
+    if (!state.enabled) {
+        return [];
+    }
+
+    return OVERRIDE_ZONES.filter(
+        label =>
+            state.data.zones[label].override !== null
+    );
+}
+
+
+/* ============================================================
  * 17. VEILIGE UITVOERING
  * ============================================================
  */
@@ -3049,6 +3516,9 @@ async function main() {
     const logic =
         await readLogicState();
 
+    const overrideState =
+        await loadOverrideState();
+
     const mode =
         logic.normalizedMode;
 
@@ -3124,6 +3594,11 @@ async function main() {
 
         log(
             'VAKANTIEFAILSAFE ACTIEF'
+        );
+
+        resetOverrides(
+            overrideState,
+            'vakantie actief'
         );
 
         const centralResult =
@@ -3227,8 +3702,10 @@ async function main() {
         }
 
         const masterResult =
-            await runSafely(
+            await runWinterZone(
                 'Master',
+                CONFIG.devices.master,
+                overrideState,
                 async () =>
                     await controlWinterMaster(
                         logic
@@ -3240,8 +3717,10 @@ async function main() {
         );
 
         const abelResult =
-            await runSafely(
+            await runWinterZone(
                 'Abel',
+                CONFIG.devices.abel,
+                overrideState,
                 async () =>
                     await controlWinterBedroom(
                         CONFIG.devices.abel,
@@ -3255,8 +3734,10 @@ async function main() {
         );
 
         const hugoResult =
-            await runSafely(
+            await runWinterZone(
                 'Hugo',
+                CONFIG.devices.hugo,
+                overrideState,
                 async () =>
                     await controlWinterBedroom(
                         CONFIG.devices.hugo,
@@ -3270,8 +3751,10 @@ async function main() {
         );
 
         const bathroomResult =
-            await runSafely(
+            await runWinterZone(
                 'Badkamer',
+                CONFIG.devices.badkamer,
+                overrideState,
                 async () =>
                     await controlWinterBathroom(
                         logic
@@ -3293,6 +3776,11 @@ async function main() {
 
         log(
             'NORMALE ZOMERREGELING'
+        );
+
+        resetOverrides(
+            overrideState,
+            'zomerregeling actief'
         );
 
         const centralResult =
@@ -3393,6 +3881,20 @@ async function main() {
      * ========================================================
      */
 
+    try {
+
+        await saveOverrideState(
+            overrideState
+        );
+
+    } catch (error) {
+
+        log(
+            `WAARSCHUWING | Override-state niet opgeslagen: ` +
+            `${errorText(error)}`
+        );
+    }
+
     await preparePushMessage(
         logic
     );
@@ -3423,6 +3925,7 @@ async function main() {
         `${vacation ? 'VAKANTIE' : 'NORMAAL'} | ` +
         `writes=${writesThisRun} | ` +
         `timeline=${timelineEvents.length} | ` +
+        `overrides=${activeOverrides(overrideState).join(', ') || 'geen'} | ` +
         `runtime=${runtimeMs} ms`
     );
 
@@ -3471,6 +3974,9 @@ async function main() {
 
         writes:
             writesThisRun,
+
+        overrides:
+            activeOverrides(overrideState),
 
         timelineEvents:
             [...timelineEvents],
