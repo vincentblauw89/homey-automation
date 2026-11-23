@@ -1,0 +1,27 @@
+{
+  // HomeyScript draait als body van een async functie: `await` en `return` op
+  // het hoogste niveau zijn daar geldig, maar VS Code ziet ze als fout.
+  // De ingebouwde JS-validatie staat daarom uit; IntelliSense blijft werken.
+  // Syntaxcontrole: Ctrl+Shift+B (taak "Controleer HomeyScripts").
+  "javascript.validate.enable": false,
+
+  "files.eol": "\n",
+  "files.encoding": "utf8",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+
+  // Grote scripts niet ongevraagd herformatteren: dat geeft enorme diffs.
+  "editor.formatOnSave": false,
+  "editor.formatOnPaste": false,
+
+  "editor.rulers": [120],
+  "editor.bracketPairColorization.enabled": true,
+
+  "search.exclude": {
+    "**/node_modules": true
+  },
+
+  "git.autofetch": true,
+  "git.confirmSync": true,
+  "git.enableSmartCommit": false
+}

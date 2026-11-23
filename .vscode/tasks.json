@@ -1,0 +1,32 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Controleer HomeyScripts",
+      "detail": "Syntaxcontrole van alle scripts zoals HomeyScript ze uitvoert",
+      "type": "shell",
+      "command": "node",
+      "args": ["tools/check-scripts.js"],
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": {
+        "owner": "homeyscript",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": [
+          { "regexp": "^FOUT\\s+(.+)$", "file": 1 },
+          { "regexp": "^\\s+.+:(\\d+)$", "line": 1 },
+          { "regexp": "^\\s+(.+)$", "message": 1 }
+        ]
+      }
+    },
+    {
+      "label": "Controleer huidig script",
+      "detail": "Syntaxcontrole van het geopende bestand",
+      "type": "shell",
+      "command": "node",
+      "args": ["tools/check-scripts.js", "${file}"],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    }
+  ]
+}
