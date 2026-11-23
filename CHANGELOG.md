@@ -2,6 +2,28 @@
 
 All notable changes to the Homey production automation are documented here.
 
+## Sensibo Climate Controller - 14.2.0 - 2026-11-23
+
+### Changed (alleen verwarmen)
+
+- Modulerend verwarmen: waar v14.1 overdag op 21,0 °C uitschakelde, zakt het
+  setpoint nu stapsgewijs (22 → 21 → 20, minimaal 15 min per stap omlaag).
+  Uitschakelen pas boven 21,5 °C (`day.heatStop` 21,0 → 21,5).
+  's Nachts (setpoint 18 = comfort) verandert er niets.
+- Minimale uit-tijd van 20 minuten na het bereiken van het verwarmingsdoel,
+  tenzij de kamer onder heatStart − 0,5 °C komt.
+- Verwarmingsfan: grenzen medium ≥ 0,4 °C / low ≥ 0,15 °C tekort (was 0,2 / 0,1),
+  hysterese 0,1 °C en minimaal 10 minuten tussen wisselingen
+  (direct omhoog bij ≥ 0,5 °C tekort).
+- Afwezigheidsvertraging: pas na 20 minuten niemand thuis naar AWAY.
+- Timeline alleen bij aan/uit- en moduswissels; setpoint- en fanbijsturing
+  staan alleen in het log (`timelineQuietAdjustments`).
+
+### Aanleiding
+
+Timeline 21–23 nov: overdag uit op 21,1 °C en na 17–51 min weer aan;
+69 fanwissels in twee dagen (19 binnen 10 min); airco 5 min uit bij kort weg.
+
 ## Central Lighting Controller - 11.3.0 - 2026-11-23
 
 ### Fixed
