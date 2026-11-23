@@ -15,6 +15,13 @@
   "editor.formatOnPaste": false,
 
   "editor.rulers": [120],
+
+  // Spellingscontrole: Nederlands en Engels door elkaar.
+  "cSpell.language": "nl,en",
+  "cSpell.words": [
+    "Airzone", "Sensibo", "Eurom", "Alutherm", "Homey", "HomeyScript",
+    "Sonoff", "badkamer", "Abel", "Hugo", "onoff", "predictief"
+  ],
   "editor.bracketPairColorization.enabled": true,
 
   "search.exclude": {
