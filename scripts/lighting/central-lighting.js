@@ -1,6 +1,6 @@
 /**
  * ============================================================
- * CENTRALE VERLICHTING V11.2
+ * CENTRALE VERLICHTING V11.3
  * ============================================================
  *
  * FUNCTIES
@@ -20,6 +20,12 @@
  * --------
  * HomeyScript ondersteunt geen setTimeout().
  * Daarom gebruiken we _.delay().
+ *
+ * V11.3
+ * -----
+ * - Killswitch werkt nu ook als niemand thuis is: de normale
+ *   binnenregeling draait dan alsof er iemand thuis is
+ *   (voorheen bleef de verlichting in de afwezigheidsstand hangen).
  *
  * ARGUMENTEN
  * ----------
@@ -41,7 +47,7 @@
 const CONFIG = {
 
 
-  VERSION: 11.2,
+  VERSION: 11.3,
 
 
   DEBUG: true,
@@ -4188,10 +4194,14 @@ async function main() {
        * Zo draait de normale binnenregeling niet eerst en voorkomen we
        * bijvoorbeeld NIGHT -> NORMAL -> NIGHT voor de hal.
        * Vakantie blijft los en behoudt de bestaande vakantieprioriteit.
+       *
+       * V11.3: met de Killswitch aan (oppas thuis) geldt het huis als
+       * bewoond en draait de normale binnenregeling.
        */
       if (
         context.presence.noOneHome &&
-        !context.vacation
+        !context.vacation &&
+        !context.killswitchOn
       ) {
 
 
