@@ -1,0 +1,53 @@
+# ============================================================
+# Homey Automation - Git Ignore
+# ============================================================
+
+# Dependencies
+node_modules/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Secrets and credentials
+secrets/
+*.secret
+*.secrets
+credentials.json
+credentials.*
+api-keys.*
+tokens.*
+
+# Local configuration
+config.local.js
+config.local.json
+*.local.js
+*.local.json
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*~
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# Test / development artifacts
+coverage/
+dist/
+tmp/
+temp/
