@@ -1,0 +1,22 @@
+{
+  "repository": "homey-automation",
+  "environment": "production",
+  "updated": "2026-11-23",
+  "components": {
+    "sensibo": {
+      "name": "Sensibo Climate Controller",
+      "version": "14.1.0",
+      "path": "scripts/climate/sensibo-controller.js"
+    },
+    "airzone": {
+      "name": "Airzone Controller",
+      "version": "2.2.0",
+      "path": "scripts/climate/airzone-controller.js"
+    },
+    "centralLighting": {
+      "name": "Central Lighting Controller",
+      "version": "11.2.0",
+      "path": "scripts/lighting/central-lighting.js"
+    }
+  }
+}
