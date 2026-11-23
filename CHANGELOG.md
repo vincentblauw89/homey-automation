@@ -11,6 +11,8 @@ All notable changes to the Homey production automation are documented here.
   alleen "geblokkeerd" logde en niets deed. De verlichting bleef daardoor in
   de afwezigheidsstand (gedimde keuken, hal nacht) of uit. Nu draait met de
   Killswitch aan de normale binnenregeling, alsof er iemand thuis is.
+- Logtijden staan nu in Nederlandse tijd in plaats van UTC (alleen weergave;
+  de regeling zelf gebruikt geen kloktijd).
 
 ## Airzone Controller - 2.3.0 - 2026-11-23
 

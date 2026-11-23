@@ -26,6 +26,7 @@
  * - Killswitch werkt nu ook als niemand thuis is: de normale
  *   binnenregeling draait dan alsof er iemand thuis is
  *   (voorheen bleef de verlichting in de afwezigheidsstand hangen).
+ * - Logtijden in Nederlandse tijd (voorheen UTC).
  *
  * ARGUMENTEN
  * ----------
@@ -414,7 +415,8 @@ function timestamp() {
     .toLocaleTimeString(
       'nl-NL',
       {
-        hour12: false
+        hour12: false,
+        timeZone: 'Europe/Amsterdam'
       }
     );
 }
