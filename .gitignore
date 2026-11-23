@@ -43,7 +43,11 @@ Thumbs.db
 Desktop.ini
 
 # IDE / Editor
-.vscode/
+# Gedeelde VS Code-instellingen worden wel meegecommit
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/tasks.json
 .idea/
 
 # Test / development artifacts

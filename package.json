@@ -1,0 +1,8 @@
+{
+  "name": "homey-automation",
+  "private": true,
+  "description": "Version-controlled production automation for Homey Pro",
+  "scripts": {
+    "check": "node tools/check-scripts.js"
+  }
+}
