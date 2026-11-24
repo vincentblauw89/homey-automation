@@ -2,6 +2,21 @@
 
 All notable changes to the Homey production automation are documented here.
 
+## Sensibo Climate Controller - 14.3.0 - 2026-11-24
+
+### Fixed
+
+- Verwarmingsfan uit 14.2 schakelde te vroeg terug (quiet al bij 20,55 °C) en
+  wachtte daarna 10 min voor hij weer omhoog mocht. Bij vorst (24 nov 05:30–10:00,
+  buiten −1 tot −2 °C) schommelde de kamer daardoor in golven van ±35 min tussen
+  19,8 en 20,55 °C (gem. 20,23 °C; 24 % van de tijd onder 20,0 °C).
+- Nieuwe grenzen (dag, comfort 20,7): medium ≤ 20,5 (terug > 20,6), low ≤ 20,6
+  (quiet pas > 20,8). Omhoog direct, omlaag pas na 15 min.
+- Bij buiten < 0 °C geen quiet zolang de kamer onder comfort + 0,3 °C is.
+
+Modulatie, minimale uit-tijd, afwezigheidsvertraging en rustige timeline uit 14.2
+blijven ongewijzigd.
+
 ## Sensibo Climate Controller - 14.2.0 - 2026-11-23
 
 ### Changed (alleen verwarmen)
