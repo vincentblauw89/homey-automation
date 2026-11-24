@@ -1,9 +1,18 @@
 /*
  * MHI KLIMAATREGELING VIA SENSIBO CLOUD
- * V14.2 - MODULEREND VERWARMEN
+ * V14.3 - MODULEREND VERWARMEN, DIRECTE FAN BIJ KOU
  *
  * Homey Flow: iedere 1 minuut uitvoeren.
  * Predictive sample en Insights: iedere 5 minuten.
+ *
+ * V14.3 wijziging (verwarmingsfan):
+ * - V14.2 zette de fan te vroeg terug (quiet al op 20,55 °C) en wachtte
+ *   10 minuten voor hij weer omhoog mocht. Bij vorst schommelde de kamer daardoor
+ *   in golven van ±35 min tussen 19,8 en 20,55 °C.
+ * - Nu: medium vanaf 20,5 (terug boven 20,6), low vanaf 20,6 (quiet pas
+ *   boven 20,8). Omhoog direct; omlaag pas na 15 minuten.
+ * - Bij buitentemperatuur onder 0 °C nooit quiet zolang de kamer onder
+ *   comfort + 0,3 °C is.
  *
  * V14.2 wijzigingen (alleen verwarmen):
  * - Modulerend verwarmen: waar v14.1 op 21,0 °C uitschakelde, zakt het
@@ -176,11 +185,20 @@ const CFG = {
      * Dag 20,7 C: medium t/m 20,5; low rond 20,6; quiet vanaf 20,7.
      */
     heating: {
-      mediumDelta: 0.4,
-      lowDelta: 0.15,
+      /*
+       * Tekort t.o.v. comfort (c), dag 20,7:
+       * omhoog naar medium ≤ 20,5 | terug naar low > 20,6
+       * omhoog naar low    ≤ 20,6 | terug naar quiet > 20,8
+       */
+      mediumDelta: 0.2,
       hysteresis: 0.1,
-      minimumChangeMinutes: 10,
-      urgentDeficit: 0.5
+      lowDelta: 0.1,
+      lowHysteresis: 0.2,
+      /* Omlaag niet vaker dan eens per zoveel minuten; omhoog altijd direct. */
+      minimumChangeMinutes: 15,
+      /* Onder deze buitentemperatuur geen quiet zolang kamer < comfort + coldQuietMargin. */
+      coldOutdoor: 0,
+      coldQuietMargin: 0.3
     },
 
     reduceDelayMinutes: 15,
@@ -306,7 +324,7 @@ function determineProfile(sleeping) {
 
 function defaultClimateState() {
   return {
-    version: 14.2,
+    version: 14.3,
     lastProfile: null,
     doorOpenSince: null,
     lastFanChange: null,
@@ -528,20 +546,28 @@ function wantedFan(delta) {
  */
 function wantedHeatingFan(roomTemperature, profile, currentFan) {
   const h = CFG.fan.heating;
-  const deficit = Math.max(0, profile.comfort - roomTemperature);
+  const deficit = profile.comfort - roomTemperature;
   const epsilon = 0.0001;
-  /* V14.2: hysterese; een hogere stand blijft tot het tekort duidelijk kleiner is. */
+  /* Hysterese: een hogere stand blijft tot het tekort duidelijk kleiner is. */
   const mediumThreshold = currentFan === "medium" ? h.mediumDelta - h.hysteresis : h.mediumDelta;
-  const lowThreshold = ["low", "medium"].includes(currentFan) ? h.lowDelta - h.hysteresis : h.lowDelta;
+  const lowThreshold = ["low", "medium"].includes(currentFan) ? h.lowDelta - h.lowHysteresis : h.lowDelta;
   if (deficit + epsilon >= mediumThreshold) return "medium";
   if (deficit + epsilon >= lowThreshold) return "low";
   return "quiet";
 }
+function applyColdFanFloor(fan, roomTemperature, profile) {
+  const h = CFG.fan.heating;
+  const outdoorTemperature = typeof outdoor !== "undefined" && outdoor.valid ? outdoor.temperature : null;
+  if (fan !== "quiet" || outdoorTemperature === null || outdoorTemperature >= h.coldOutdoor) return fan;
+  if (roomTemperature >= profile.comfort + h.coldQuietMargin) return fan;
+  log(`FAN KOU | buiten ${outdoorTemperature} °C; kamer ${roomTemperature} °C | quiet → low`);
+  return "low";
+}
 function limitHeatingFanChange(state, ac, fan, roomTemperature, profile) {
   if (!ac.power || ac.mode !== "heat" || !ac.fan || fan === ac.fan) return fan;
   if (!["quiet", "low", "medium"].includes(ac.fan)) return fan;
-  const deficit = profile.comfort - roomTemperature;
-  if (fanRank(fan) > fanRank(ac.fan) && deficit >= CFG.fan.heating.urgentDeficit) return fan;
+  /* V14.3: omhoog altijd direct */
+  if (fanRank(fan) > fanRank(ac.fan)) return fan;
   const lastChange = finiteTimestamp(state.lastFanChange);
   if (lastChange === null) return fan;
   const elapsedMinutes = (Date.now() - lastChange) / 60000;
@@ -621,6 +647,7 @@ function determineHeatingFan(state, ac, prediction, roomTemperature, profile) {
   let fan = selectFan(state, ac.fan, wantedHeatingFan(roomTemperature, profile, ac.fan));
   fan = applyHeatingPredictionBoost(fan, prediction, roomTemperature, profile);
   fan = applyHeatingTrendBoost(fan, prediction, roomTemperature, profile);
+  fan = applyColdFanFloor(fan, roomTemperature, profile);
   return limitHeatingFanChange(state, ac, fan, roomTemperature, profile);
 }
 function heatingDesired(state, ac, prediction, roomTemperature, profile) {
@@ -974,8 +1001,8 @@ log(`Aanwezig Vincent=${vincentHome} | Roos=${roosHome} | Override=${overrideAct
 log(`Schuifpui open=${door.open} | open ${door.minutes.toFixed(1)} min | stop=${door.stop}`);
 log(`Kamer ${roomTemperature}°C | buiten ${outdoor.valid ? `${outdoor.temperature}°C via ${outdoor.source}` : "onbekend"} | koeling toegestaan=${coolingAllowed} | Sensibo ${ac.power ? "AAN" : "UIT"} ${ac.mode}/${ac.target}°C/${ac.fan}`);
 if (prediction.available) {
-  log(`V14.2 TREND | ${prediction.samples} samples / ${prediction.spanMinutes.toFixed(1)} min | raw ${prediction.rawTrendPerHour >= 0 ? "+" : ""}${prediction.rawTrendPerHour.toFixed(2)} | EMA ${prediction.smoothedTrendPerHour >= 0 ? "+" : ""}${prediction.smoothedTrendPerHour.toFixed(2)} | effectief ${prediction.effectiveTrendPerHour >= 0 ? "+" : ""}${prediction.effectiveTrendPerHour.toFixed(2)} °C/u | delta ${prediction.predictionDelta >= 0 ? "+" : ""}${prediction.predictionDelta.toFixed(2)} °C | +${CFG.prediction.forecastMinutes}m ${prediction.predictedTemperature.toFixed(1)} °C | startHeat=${predictiveHeat} | startCool=${predictiveCool}`);
-} else log(`V14.2 TREND | niet beschikbaar: ${prediction.reason}`);
+  log(`V14.3 TREND | ${prediction.samples} samples / ${prediction.spanMinutes.toFixed(1)} min | raw ${prediction.rawTrendPerHour >= 0 ? "+" : ""}${prediction.rawTrendPerHour.toFixed(2)} | EMA ${prediction.smoothedTrendPerHour >= 0 ? "+" : ""}${prediction.smoothedTrendPerHour.toFixed(2)} | effectief ${prediction.effectiveTrendPerHour >= 0 ? "+" : ""}${prediction.effectiveTrendPerHour.toFixed(2)} °C/u | delta ${prediction.predictionDelta >= 0 ? "+" : ""}${prediction.predictionDelta.toFixed(2)} °C | +${CFG.prediction.forecastMinutes}m ${prediction.predictedTemperature.toFixed(1)} °C | startHeat=${predictiveHeat} | startCool=${predictiveCool}`);
+} else log(`V14.3 TREND | niet beschikbaar: ${prediction.reason}`);
 
 /* =========================================================
  * 13. BESLISLOGICA
@@ -1179,5 +1206,5 @@ const outsideText = outdoor.valid ? `${outdoor.temperature}°C via ${outdoor.sou
 const predictionText = prediction.available
   ? `${prediction.samples} samples | EMA ${prediction.smoothedTrendPerHour >= 0 ? "+" : ""}${prediction.smoothedTrendPerHour.toFixed(2)}°C/u | effectief ${prediction.effectiveTrendPerHour >= 0 ? "+" : ""}${prediction.effectiveTrendPerHour.toFixed(2)}°C/u → ${prediction.predictedTemperature.toFixed(1)}°C`
   : prediction.reason;
-log(`${period} | ${profileSelection.clock.text} | Slapen=${sleeping} | ComfortBoost=${comfortBoostActive} | comfort=${profile.comfort.toFixed(1)}°C | binnen ${roomTemperature}°C | buiten ${outsideText} | V14.2 bescherming=${coldProtection.type} | ${predictionText} | Insights ${sampleResult.sampleAdded ? "UPDATE" : "-"} | Sensibo ${ac.power ? "AAN" : "UIT"} ${ac.mode}/${ac.target}°C/${ac.fan} | ${result} | wijzigingen ${changes.length}`);
-return `${period} | ${profileSelection.clock.text} | Slapen=${sleeping} | ComfortBoost=${comfortBoostActive} | comfort=${profile.comfort.toFixed(1)}°C | ${roomTemperature}°C | buiten ${outsideText} | V14.2 bescherming=${coldProtection.type} | ${predictionText} | Insights ${sampleResult.sampleAdded ? "UPDATE" : "-"} | ${result} | ${changes.length} wijziging(en)`;
+log(`${period} | ${profileSelection.clock.text} | Slapen=${sleeping} | ComfortBoost=${comfortBoostActive} | comfort=${profile.comfort.toFixed(1)}°C | binnen ${roomTemperature}°C | buiten ${outsideText} | V14.3 bescherming=${coldProtection.type} | ${predictionText} | Insights ${sampleResult.sampleAdded ? "UPDATE" : "-"} | Sensibo ${ac.power ? "AAN" : "UIT"} ${ac.mode}/${ac.target}°C/${ac.fan} | ${result} | wijzigingen ${changes.length}`);
+return `${period} | ${profileSelection.clock.text} | Slapen=${sleeping} | ComfortBoost=${comfortBoostActive} | comfort=${profile.comfort.toFixed(1)}°C | ${roomTemperature}°C | buiten ${outsideText} | V14.3 bescherming=${coldProtection.type} | ${predictionText} | Insights ${sampleResult.sampleAdded ? "UPDATE" : "-"} | ${result} | ${changes.length} wijziging(en)`;

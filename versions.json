@@ -5,7 +5,7 @@
   "components": {
     "sensibo": {
       "name": "Sensibo Climate Controller",
-      "version": "14.2.0",
+      "version": "14.3.0",
       "path": "scripts/climate/sensibo-controller.js"
     },
     "airzone": {
