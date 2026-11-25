@@ -1,6 +1,7 @@
 /*
  * EUROM CONVECTOREN - WERKKAMER BOVEN EN BENEDEN
- * V1.0 - TIJDPROPORTIONELE PI-REGELING OP EXTERNE SENSOR (SONOFF SNZB-02P)
+ * V1.1 - TIJDPROPORTIONELE PI-REGELING OP EXTERNE SENSOR (SONOFF SNZB-02P)
+ *        MET FAILSAFE OM 17:00 EN 21:00
  *
  * Homey Flow: iedere minuut uitvoeren (één flow voor beide kamers).
  *
@@ -21,6 +22,13 @@
  *   het comfortsetpoint (FALLBACK).
  * - Vangnet: valt Homey uit tijdens een warmfase, dan stopt de interne
  *   thermostaat op comfort + offset.
+ *
+ * FAILSAFE (V1.1)
+ * - Om 17:00 en 21:00 Nederlandse tijd (Europe/Amsterdam, zomer- en
+ *   wintertijd automatisch) gaan beide convectoren uit als ze aan staan.
+ * - Elk moment werkt één keer per dag, binnen een venster van 15 minuten
+ *   (zo wordt een gemiste run opgevangen). Zet je een convector daarna
+ *   zelf weer aan, dan blijft hij aan tot het volgende failsafe-moment.
  *
  * COMFORTTEMPERATUUR
  * - Standaard uit ROOMS[].comfort.
@@ -52,7 +60,7 @@ const ROOMS = [
 ];
 
 const CFG = {
-  version: "1.0",
+  version: "1.1",
   dryRun: false,
   timeZone: "Europe/Amsterdam",
   stateKeyPrefix: "eurom-werkkamer-",   // HomeyScript global storage
@@ -103,6 +111,13 @@ const CFG = {
     maximumSamples: 15
   },
 
+  failsafe: {
+    enabled: true,
+    times: ["17:00", "21:00"],   // lokale tijd Europe/Amsterdam
+    windowMinutes: 15,
+    stateKey: "eurom-werkkamer-failsafe"
+  },
+
   timeline: true
 };
 
@@ -115,6 +130,22 @@ function clock() {
   return new Date().toLocaleTimeString("nl-NL", { timeZone: CFG.timeZone, hour12: false });
 }
 function log(message) { console.log(`${clock()} | ${message}`); }
+function localClock() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: CFG.timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+  }).formatToParts(new Date());
+  const read = type => parts.find(part => part.type === type)?.value;
+  const hour = Number(read("hour"));
+  const minute = Number(read("minute"));
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) throw new Error(`Lokale tijd onbekend voor ${CFG.timeZone}`);
+  return { dateKey: `${read("year")}-${read("month")}-${read("day")}`, minutes: hour * 60 + minute, text: `${read("hour")}:${read("minute")}` };
+}
+function timeToMinutes(text) {
+  const [h, m] = String(text).split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) throw new Error(`Ongeldige failsafe-tijd: ${text}`);
+  return h * 60 + m;
+}
 function value(device, capability) { return device?.capabilitiesObj?.[capability]?.value; }
 function hasCapability(device, capability) {
   return Boolean(device?.capabilitiesObj && Object.prototype.hasOwnProperty.call(device.capabilitiesObj, capability));
@@ -292,7 +323,30 @@ function heatSetpoint(comfort) {
  * 6. REGELING PER KAMER
  * ========================================================= */
 
-async function controlRoom(room, devices, logic) {
+/* =========================================================
+ * 5B. FAILSAFE
+ * ========================================================= */
+
+function dueFailsafe() {
+  const f = CFG.failsafe;
+  if (!f.enabled) return null;
+  const local = localClock();
+  const stored = global.get(f.stateKey);
+  const done = stored && stored.dateKey === local.dateKey && Array.isArray(stored.done) ? stored.done : [];
+  for (const time of f.times) {
+    const start = timeToMinutes(time);
+    if (local.minutes >= start && local.minutes < start + f.windowMinutes && !done.includes(time)) {
+      return { time, local, done };
+    }
+  }
+  return null;
+}
+function markFailsafeDone(due) {
+  if (CFG.dryRun) return;
+  global.set(CFG.failsafe.stateKey, { dateKey: due.local.dateKey, done: [...due.done, due.time] });
+}
+
+async function controlRoom(room, devices, logic, failsafe) {
   const heater = devices[room.heater];
   const sensor = devices[room.sensor];
   if (!heater) throw new Error(`${room.label}: convector niet gevonden (${room.heater})`);
@@ -302,7 +356,17 @@ async function controlRoom(room, devices, logic) {
   }
 
   const state = loadState(room);
-  const heaterOn = value(heater, "onoff") === true;
+  let heaterOn = value(heater, "onoff") === true;
+  let failsafeOff = false;
+
+  /* --- Failsafe: om 17:00 / 21:00 uitschakelen --- */
+  if (failsafe && heaterOn) {
+    log(`${room.label} | FAILSAFE ${failsafe.time} (lokaal ${failsafe.local.text}) → convector uit`);
+    await setCapability(heater, "onoff", false);
+    heaterOn = false;
+    failsafeOff = true;
+    if (!state.active) await timeline(room.label, `🕔 failsafe ${failsafe.time}; convector uitgezet`);
+  }
   const currentSetpoint = Number(value(heater, "target_temperature"));
 
   /* --- Uit: regeling stoppen en oud setpoint terugzetten --- */
@@ -315,7 +379,9 @@ async function controlRoom(room, devices, logic) {
         catch (error) { log(`${room.label} | herstel setpoint mislukt: ${error.message}`); }
       }
       saveState(room, defaultState());
-      await timeline(room.label, "⏹️ convector uit; slimme regeling gestopt");
+      await timeline(room.label, failsafeOff
+        ? `🕔 failsafe ${failsafe.time}; convector uitgezet, regeling gestopt`
+        : "⏹️ convector uit; slimme regeling gestopt");
       return `${room.label}: gestopt`;
     }
     return `${room.label}: uit`;
@@ -422,13 +488,19 @@ async function controlRoom(room, devices, logic) {
 
 const devices = await Homey.devices.getDevices();
 const logic = await Homey.logic.getVariables();
+const failsafe = dueFailsafe();
+if (failsafe) log(`FAILSAFE | ${failsafe.time} actief (lokale tijd ${failsafe.local.text}, ${CFG.timeZone})`);
 const results = [];
+let failsafeErrors = 0;
 for (const room of ROOMS) {
   try {
-    results.push(await controlRoom(room, devices, logic));
+    results.push(await controlRoom(room, devices, logic, failsafe));
   } catch (error) {
     log(`FOUT | ${error.message}`);
     results.push(`${room.label}: FOUT ${error.message}`);
+    if (failsafe) failsafeErrors++;
   }
 }
+/* Alleen afvinken als het uitzetten overal lukte; anders volgende minuut opnieuw. */
+if (failsafe && failsafeErrors === 0) markFailsafeDone(failsafe);
 return results.join("\n");
