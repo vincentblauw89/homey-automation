@@ -1,7 +1,8 @@
 /*
  * EUROM CONVECTOREN - WERKKAMER BOVEN EN BENEDEN
- * V1.2 - TIJDPROPORTIONELE PI-REGELING OP EXTERNE SENSOR (SONOFF SNZB-02P)
- *        MET FAILSAFE OM 17:00 EN 21:00 EN OCHTENDVERWARMING BOVEN
+ * V1.3 - TIJDPROPORTIONELE PI-REGELING OP EXTERNE SENSOR (SONOFF SNZB-02P)
+ *        MET FAILSAFE OM 17:00 EN 21:00, OCHTENDVERWARMING BOVEN EN
+ *        INFRAROOD-BOOSTER BENEDEN
  *
  * Homey Flow: iedere minuut uitvoeren (één flow voor beide kamers).
  *
@@ -37,6 +38,16 @@
  * - Zet je hem tussendoor zelf uit, dan stopt de ochtendverwarming.
  * - Gemiste run: venster van 15 minuten, net als de failsafe.
  *
+ * INFRAROOD-BOOSTER (V1.3, alleen werkkamer beneden)
+ * - Het infraroodpaneel (Eurom Mon Soleil DSP 770) helpt alleen bij het
+ *   opwarmen, en alleen zolang de convector aan staat en het script regelt.
+ * - Aan bij ≥ 1,5 °C tekort, uit bij ≤ 0,5 °C tekort. Daarna houdt de
+ *   convector de temperatuur vast.
+ * - Het script zet het paneel alleen uit als het script het zelf aanzette.
+ *   Zet je het paneel tijdens een booster zelf uit, dan blijft het uit tot
+ *   de convector weer uit gaat.
+ * - Failsafe 17:00/21:00 zet ook het paneel uit.
+ *
  * COMFORTTEMPERATUUR
  * - Standaard uit ROOMS[].comfort.
  * - Optioneel per kamer een getal-variabele (bijv. "Werkkamer boven doel");
@@ -68,12 +79,18 @@ const ROOMS = [
     heater: "c34266e0-2296-4a34-adfc-292ffad68848",   // Werkkamer beneden convector
     sensor: "fecf88b8-8ae2-46bc-942a-26b7a9408f91",   // Thermometer werkkamer beneden (SNZB-02P)
     comfort: 20.5,
-    comfortVariable: "Werkkamer beneden doel"         // optioneel (getal)
+    comfortVariable: "Werkkamer beneden doel",        // optioneel (getal)
+    booster: {                                        // infraroodpaneel bij opwarmen
+      device: "7742cb88-8991-4c47-8cfb-fd8193233dd9", // Infraroodpaneel (Eurom Mon Soleil DSP 770)
+      onDeficit: 1.5,
+      offDeficit: 0.5,
+      setpoint: 25                                    // eigen thermostaat paneel ruim boven comfort
+    }
   }
 ];
 
 const CFG = {
-  version: "1.2",
+  version: "1.3",
   dryRun: false,
   timeZone: "Europe/Amsterdam",
   stateKeyPrefix: "eurom-werkkamer-",   // HomeyScript global storage
@@ -222,7 +239,9 @@ function defaultState() {
     cycle: null,                 // { startedAt, onMinutes, demand }
     temperatureHistory: [],
     smoothedTrendPerHour: null,
-    fallbackActive: false
+    fallbackActive: false,
+    boosterOn: false,
+    boosterSuppressed: false
   };
 }
 function loadState(room) {
@@ -240,6 +259,8 @@ function loadState(room) {
   }
   state.smoothedTrendPerHour = Number.isFinite(Number(raw.smoothedTrendPerHour)) ? Number(raw.smoothedTrendPerHour) : null;
   state.fallbackActive = raw.fallbackActive === true;
+  state.boosterOn = raw.boosterOn === true;
+  state.boosterSuppressed = raw.boosterSuppressed === true;
   state.temperatureHistory = (Array.isArray(raw.temperatureHistory) ? raw.temperatureHistory : [])
     .filter(s => Number.isFinite(Number(s?.time)) && Number.isFinite(Number(s?.temperature)))
     .map(s => ({ time: Number(s.time), temperature: Number(s.temperature) }))
@@ -424,6 +445,44 @@ async function handleMorning(room, heater, sensor) {
   return morning;
 }
 
+/* =========================================================
+ * 5D. INFRAROOD-BOOSTER
+ * ========================================================= */
+
+async function boosterOff(room, panel, state, reason) {
+  if (!panel) return;
+  if (value(panel, "onoff") === true) {
+    log(`${room.label} | BOOSTER | ${panel.name} uit (${reason})`);
+    await setCapability(panel, "onoff", false);
+  }
+  state.boosterOn = false;
+}
+async function updateBooster(room, panel, state, deficit) {
+  const b = room.booster;
+  if (!panel) return "geen paneel";
+  const panelOn = value(panel, "onoff") === true;
+  if (state.boosterOn && !panelOn) {
+    state.boosterOn = false;
+    state.boosterSuppressed = true;
+    log(`${room.label} | BOOSTER | paneel handmatig uitgezet; blijft uit tot de convector uit gaat`);
+    return "handmatig uit";
+  }
+  if (!state.boosterOn && !state.boosterSuppressed && !panelOn && deficit >= b.onDeficit) {
+    log(`${room.label} | BOOSTER | tekort ${fmt(deficit)} °C ≥ ${b.onDeficit} → ${panel.name} aan`);
+    if (hasCapability(panel, "target_temperature") && Number(value(panel, "target_temperature")) < b.setpoint) {
+      await setCapability(panel, "target_temperature", b.setpoint);
+    }
+    await setCapability(panel, "onoff", true);
+    state.boosterOn = true;
+    return "aan";
+  }
+  if (state.boosterOn && deficit <= b.offDeficit) {
+    await boosterOff(room, panel, state, `tekort ${fmt(deficit)} °C ≤ ${b.offDeficit}`);
+    return "uit";
+  }
+  return state.boosterOn ? "aan" : (panelOn ? "handmatig aan" : "uit");
+}
+
 async function controlRoom(room, devices, logic, failsafe) {
   const heater = devices[room.heater];
   const sensor = devices[room.sensor];
@@ -434,9 +493,18 @@ async function controlRoom(room, devices, logic, failsafe) {
   }
 
   const state = loadState(room);
+  const panel = room.booster ? devices[room.booster.device] || null : null;
+  if (room.booster && !panel) log(`${room.label} | WAARSCHUWING | infraroodpaneel niet gevonden; booster overgeslagen`);
   const morning = room.morning ? await handleMorning(room, heater, sensor) : null;
   let heaterOn = value(heater, "onoff") === true;
   let failsafeOff = false;
+
+  /* --- Failsafe: ook het infraroodpaneel uit --- */
+  if (failsafe && panel && value(panel, "onoff") === true) {
+    log(`${room.label} | FAILSAFE ${failsafe.time} → ${panel.name} uit`);
+    await setCapability(panel, "onoff", false);
+    state.boosterOn = false;
+  }
 
   /* --- Failsafe: om 17:00 / 21:00 uitschakelen --- */
   if (failsafe && heaterOn) {
@@ -451,6 +519,10 @@ async function controlRoom(room, devices, logic, failsafe) {
   /* --- Uit: regeling stoppen en oud setpoint terugzetten --- */
   if (!heaterOn) {
     if (state.active) {
+      if (state.boosterOn) {
+        try { await boosterOff(room, panel, state, "convector uit"); }
+        catch (error) { log(`${room.label} | booster uitzetten mislukt: ${error.message}`); }
+      }
       const restore = Number.isFinite(state.userSetpoint) ? state.userSetpoint : null;
       log(`${room.label} | convector UIT → regeling gestopt${restore !== null ? `; setpoint terug naar ${restore} °C` : ""}`);
       if (restore !== null && Math.abs(currentSetpoint - restore) > CFG.setpoint.tolerance) {
@@ -501,6 +573,7 @@ async function controlRoom(room, devices, logic, failsafe) {
     result = "FALLBACK";
     detail = `sensor ${room_.reason}; convector regelt zelf op ${desiredSetpoint} °C`;
     state.cycle = null;
+    if (state.boosterOn) await boosterOff(room, panel, state, "sensor weg");
     if (!state.fallbackActive) {
       state.fallbackActive = true;
       await timeline(room.label, `⚠️ sensor ${room_.reason}; convector regelt tijdelijk zelf op ${desiredSetpoint} °C`);
@@ -541,6 +614,10 @@ async function controlRoom(room, devices, logic, failsafe) {
     result = heatNow ? "HEATING" : "IDLE";
     detail = `${reasonCycle ? `${reasonCycle} | ` : ""}min ${fmt(elapsed)}/${c.minutes} | warmen t/m ${cycle.onMinutes} min`;
 
+    if (room.booster) {
+      const boosterStatus = await updateBooster(room, panel, state, control.error);
+      detail += ` | booster ${boosterStatus}`;
+    }
     log(`${room.label} | PI | fout ${signed(control.error)} °C | P ${signed(control.p)} | I ${signed(control.i)} | D ${signed(control.d)} | vraag ${pct(control.demand)}`);
     log(`${room.label} | ${trend.available ? `TREND | EMA ${signed(trend.ema)} °C/u | ${trend.samples} samples` : `TREND | niet beschikbaar: ${trend.reason}`}`);
   }
