@@ -2,6 +2,17 @@
 
 All notable changes to the Homey production automation are documented here.
 
+## Eurom Werkkamers Controller - 1.3.0 - 2026-11-25
+
+### Added
+
+- Infrarood-booster werkkamer beneden: het Eurom Mon Soleil DSP 770-paneel
+  (770 W) helpt bij het opwarmen naast de convector van 1500 W, alleen zolang
+  de convector aan staat. Aan bij ≥ 1,5 °C tekort, uit bij ≤ 0,5 °C.
+- Het script zet het paneel alleen uit als het script het aanzette; zelf
+  uitzetten tijdens een booster blijft gerespecteerd tot de convector uit gaat.
+- Failsafe 17:00/21:00, convector uit en sensoruitval zetten de booster uit.
+
 ## Eurom Werkkamers Controller - 1.2.0 - 2026-11-25
 
 ### Added
