@@ -1,7 +1,7 @@
 /*
  * EUROM CONVECTOREN - WERKKAMER BOVEN EN BENEDEN
- * V1.1 - TIJDPROPORTIONELE PI-REGELING OP EXTERNE SENSOR (SONOFF SNZB-02P)
- *        MET FAILSAFE OM 17:00 EN 21:00
+ * V1.2 - TIJDPROPORTIONELE PI-REGELING OP EXTERNE SENSOR (SONOFF SNZB-02P)
+ *        MET FAILSAFE OM 17:00 EN 21:00 EN OCHTENDVERWARMING BOVEN
  *
  * Homey Flow: iedere minuut uitvoeren (één flow voor beide kamers).
  *
@@ -30,6 +30,13 @@
  *   (zo wordt een gemiste run opgevangen). Zet je een convector daarna
  *   zelf weer aan, dan blijft hij aan tot het volgende failsafe-moment.
  *
+ * OCHTENDVERWARMING (V1.2, alleen werkkamer boven - sporten)
+ * - Om 04:30 eenmalig controleren: kamer onder 12 °C en convector uit?
+ *   Dan zet het script de convector aan met doel 19 °C.
+ * - Om 05:50 gaat hij weer uit (alleen als het script hem aanzette).
+ * - Zet je hem tussendoor zelf uit, dan stopt de ochtendverwarming.
+ * - Gemiste run: venster van 15 minuten, net als de failsafe.
+ *
  * COMFORTTEMPERATUUR
  * - Standaard uit ROOMS[].comfort.
  * - Optioneel per kamer een getal-variabele (bijv. "Werkkamer boven doel");
@@ -47,7 +54,13 @@ const ROOMS = [
     heater: "e5d708e4-c33b-4a01-ab3a-87fae3dd5785",   // Werkkamer boven convector
     sensor: "7da65d15-111d-4107-817c-fadc87925fd3",   // Thermometer werkkamer boven (SNZB-02P)
     comfort: 20.5,
-    comfortVariable: "Werkkamer boven doel"           // optioneel (getal)
+    comfortVariable: "Werkkamer boven doel",          // optioneel (getal)
+    morning: {                                        // ochtendverwarming (sporten)
+      check: "04:30",
+      end: "05:50",
+      belowTemperature: 12,
+      comfort: 19
+    }
   },
   {
     key: "beneden",
@@ -60,7 +73,7 @@ const ROOMS = [
 ];
 
 const CFG = {
-  version: "1.1",
+  version: "1.2",
   dryRun: false,
   timeZone: "Europe/Amsterdam",
   stateKeyPrefix: "eurom-werkkamer-",   // HomeyScript global storage
@@ -346,6 +359,71 @@ function markFailsafeDone(due) {
   global.set(CFG.failsafe.stateKey, { dateKey: due.local.dateKey, done: [...due.done, due.time] });
 }
 
+/* =========================================================
+ * 5C. OCHTENDVERWARMING
+ * ========================================================= */
+
+function inWindow(local, time) {
+  const start = timeToMinutes(time);
+  return local.minutes >= start && local.minutes < start + CFG.failsafe.windowMinutes;
+}
+function loadMorning(room, local) {
+  const raw = global.get(`${CFG.stateKeyPrefix}${room.key}-morning`);
+  if (raw && raw.dateKey === local.dateKey) return { dateKey: local.dateKey, checked: raw.checked === true, active: raw.active === true };
+  /* Nieuwe dag: een actieve ochtend van gisteren loopt niet door */
+  return { dateKey: local.dateKey, checked: false, active: false, carriedOver: raw?.active === true };
+}
+function saveMorning(room, morning) {
+  if (CFG.dryRun) return;
+  global.set(`${CFG.stateKeyPrefix}${room.key}-morning`, { dateKey: morning.dateKey, checked: morning.checked, active: morning.active });
+}
+async function handleMorning(room, heater, sensor) {
+  const m = room.morning;
+  const local = localClock();
+  const morning = loadMorning(room, local);
+  let heaterOn = value(heater, "onoff") === true;
+
+  /* Zelf uitgezet tijdens de ochtend → klaar */
+  if (morning.active && !heaterOn) {
+    morning.active = false;
+    log(`${room.label} | OCHTEND | convector handmatig uit; ochtendverwarming gestopt`);
+  }
+
+  /* 04:30: eenmalige controle */
+  if (!morning.checked && inWindow(local, m.check)) {
+    morning.checked = true;
+    const reading = readSensor(sensor);
+    if (heaterOn) {
+      log(`${room.label} | OCHTEND ${m.check} | convector staat al aan; niets doen`);
+    } else if (!reading.valid) {
+      log(`${room.label} | OCHTEND ${m.check} | sensor ${reading.reason}; niet aanzetten`);
+      await timeline(room.label, `⚠️ ochtendcontrole ${m.check}: sensor ${reading.reason}; convector niet aangezet`);
+    } else if (reading.temperature < m.belowTemperature) {
+      log(`${room.label} | OCHTEND ${m.check} | kamer ${fmt(reading.temperature)} °C < ${m.belowTemperature} °C → convector aan, doel ${m.comfort} °C tot ${m.end}`);
+      await setCapability(heater, "onoff", true);
+      heaterOn = true;
+      morning.active = true;
+      await timeline(room.label, `🌅 ochtendverwarming: ${fmt(reading.temperature)} °C; aan tot ${m.end}, doel ${m.comfort} °C`);
+    } else {
+      log(`${room.label} | OCHTEND ${m.check} | kamer ${fmt(reading.temperature)} °C ≥ ${m.belowTemperature} °C; niet nodig`);
+    }
+  }
+
+  /* 05:50: uit (alleen als het script hem aanzette) */
+  if (morning.active && (inWindow(local, m.end) || local.minutes >= timeToMinutes(m.end) + CFG.failsafe.windowMinutes)) {
+    if (heaterOn) {
+      log(`${room.label} | OCHTEND ${m.end} | einde ochtendverwarming → convector uit`);
+      await setCapability(heater, "onoff", false);
+      heaterOn = false;
+    }
+    morning.active = false;
+    morning.endedNow = true;
+  }
+
+  saveMorning(room, morning);
+  return morning;
+}
+
 async function controlRoom(room, devices, logic, failsafe) {
   const heater = devices[room.heater];
   const sensor = devices[room.sensor];
@@ -356,6 +434,7 @@ async function controlRoom(room, devices, logic, failsafe) {
   }
 
   const state = loadState(room);
+  const morning = room.morning ? await handleMorning(room, heater, sensor) : null;
   let heaterOn = value(heater, "onoff") === true;
   let failsafeOff = false;
 
@@ -381,7 +460,9 @@ async function controlRoom(room, devices, logic, failsafe) {
       saveState(room, defaultState());
       await timeline(room.label, failsafeOff
         ? `🕔 failsafe ${failsafe.time}; convector uitgezet, regeling gestopt`
-        : "⏹️ convector uit; slimme regeling gestopt");
+        : morning?.endedNow
+          ? `🌅 ochtendverwarming klaar (${room.morning.end}); convector uit`
+          : "⏹️ convector uit; slimme regeling gestopt");
       return `${room.label}: gestopt`;
     }
     return `${room.label}: uit`;
@@ -390,9 +471,10 @@ async function controlRoom(room, devices, logic, failsafe) {
   /* --- Comforttemperatuur --- */
   const variable = findVariableByName(logic, room.comfortVariable);
   const variableValue = Number(variable?.value);
-  const comfort = variable && Number.isFinite(variableValue) && variableValue > 0
+  const baseComfort = variable && Number.isFinite(variableValue) && variableValue > 0
     ? clamp(variableValue, CFG.comfortMin, CFG.comfortMax)
     : room.comfort;
+  const comfort = morning?.active ? room.morning.comfort : baseComfort;
 
   /* --- Aan: activeren bij eerste run --- */
   if (!state.active) {
@@ -403,7 +485,7 @@ async function controlRoom(room, devices, logic, failsafe) {
       integral: CFG.pi.warmStartIntegral
     });
     log(`${room.label} | convector AAN → slimme regeling actief | doel ${fmt(comfort)} °C | oud setpoint ${fmt(currentSetpoint, 0)} °C`);
-    await timeline(room.label, `🔥 slimme regeling actief; doel ${fmt(comfort)} °C`);
+    if (!morning?.active) await timeline(room.label, `🔥 slimme regeling actief; doel ${fmt(comfort)} °C`);
   }
 
   const room_ = readSensor(sensor);
