@@ -15,7 +15,7 @@
     },
     "euromWerkkamers": {
       "name": "Eurom Werkkamers Controller",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "scripts/climate/eurom-werkkamers.js"
     },
     "centralLighting": {

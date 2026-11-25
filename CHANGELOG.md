@@ -2,6 +2,17 @@
 
 All notable changes to the Homey production automation are documented here.
 
+## Eurom Werkkamers Controller - 1.1.0 - 2026-11-25
+
+### Added
+
+- Failsafe om 17:00 en 21:00 lokale tijd (Europe/Amsterdam; zomer- en
+  wintertijd automatisch): beide convectoren uit als ze aan staan, oude
+  setpoint terug, één timeline-melding per kamer.
+- Elk moment één keer per dag binnen een venster van 15 minuten (vangt een
+  gemiste run op). Na de failsafe weer handmatig aanzetten blijft gerespecteerd
+  tot het volgende moment. Mislukt het uitzetten, dan volgende minuut opnieuw.
+
 ## Eurom Werkkamers Controller - 1.0.0 - 2026-11-25
 
 ### Added
