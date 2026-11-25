@@ -31,7 +31,7 @@
  *   zelf weer aan, dan blijft hij aan tot het volgende failsafe-moment.
  *
  * OCHTENDVERWARMING (V1.2, alleen werkkamer boven - sporten)
- * - Om 04:30 eenmalig controleren: kamer onder 12 °C en convector uit?
+ * - Om 04:00 eenmalig controleren: kamer onder 12 °C en convector uit?
  *   Dan zet het script de convector aan met doel 19 °C.
  * - Om 05:50 gaat hij weer uit (alleen als het script hem aanzette).
  * - Zet je hem tussendoor zelf uit, dan stopt de ochtendverwarming.
@@ -56,7 +56,7 @@ const ROOMS = [
     comfort: 20.5,
     comfortVariable: "Werkkamer boven doel",          // optioneel (getal)
     morning: {                                        // ochtendverwarming (sporten)
-      check: "04:30",
+      check: "04:00",
       end: "05:50",
       belowTemperature: 12,
       comfort: 19
@@ -389,7 +389,7 @@ async function handleMorning(room, heater, sensor) {
     log(`${room.label} | OCHTEND | convector handmatig uit; ochtendverwarming gestopt`);
   }
 
-  /* 04:30: eenmalige controle */
+  /* Controlemoment (m.check): eenmalig */
   if (!morning.checked && inWindow(local, m.check)) {
     morning.checked = true;
     const reading = readSensor(sensor);
@@ -409,7 +409,7 @@ async function handleMorning(room, heater, sensor) {
     }
   }
 
-  /* 05:50: uit (alleen als het script hem aanzette) */
+  /* Eindmoment (m.end): uit, alleen als het script hem aanzette */
   if (morning.active && (inWindow(local, m.end) || local.minutes >= timeToMinutes(m.end) + CFG.failsafe.windowMinutes)) {
     if (heaterOn) {
       log(`${room.label} | OCHTEND ${m.end} | einde ochtendverwarming → convector uit`);

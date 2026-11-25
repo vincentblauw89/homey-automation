@@ -6,7 +6,7 @@ All notable changes to the Homey production automation are documented here.
 
 ### Added
 
-- Ochtendverwarming werkkamer boven (sporten): om 04:30 lokale tijd eenmalig
+- Ochtendverwarming werkkamer boven (sporten): om 04:00 lokale tijd eenmalig
   controleren; kamer < 12 °C en convector uit → convector aan met doel 19 °C.
   Om 05:50 weer uit, alleen als het script hem aanzette. Zelf uitzetten stopt
   de ochtendverwarming. Venster van 15 minuten voor gemiste runs.
