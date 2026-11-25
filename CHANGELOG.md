@@ -2,6 +2,23 @@
 
 All notable changes to the Homey production automation are documented here.
 
+## Eurom Werkkamers Controller - 1.0.0 - 2026-11-25
+
+### Added
+
+- Slimme regeling voor de Eurom-convectoren in de werkkamer boven en beneden,
+  op basis van de Sonoff SNZB-02P-sensoren in die kamers.
+- Handmatig starten: alleen actief zolang de convector aan staat. Uitzetten
+  stopt de regeling en zet het oorspronkelijke setpoint terug.
+- Tijdsproportionele PI-regeling (cyclus 10 min) via het setpoint van de
+  interne thermostaat (warmen = comfort + 4 °C, pauze = 5 °C). Het script
+  schakelt de convector nooit zelf aan of uit.
+- Fallback op de eigen thermostaat (comfortsetpoint) bij een sensor zonder
+  update > 45 min.
+- Comfort per kamer 20,5 °C, optioneel via getal-variabele
+  "Werkkamer boven doel" / "Werkkamer beneden doel".
+- State in HomeyScript global storage; geen extra variabelen nodig.
+
 ## Sensibo Climate Controller - 14.3.0 - 2026-11-24
 
 ### Fixed

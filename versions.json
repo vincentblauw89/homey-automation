@@ -13,6 +13,11 @@
       "version": "2.3.0",
       "path": "scripts/climate/airzone-controller.js"
     },
+    "euromWerkkamers": {
+      "name": "Eurom Werkkamers Controller",
+      "version": "1.0.0",
+      "path": "scripts/climate/eurom-werkkamers.js"
+    },
     "centralLighting": {
       "name": "Central Lighting Controller",
       "version": "11.3.0",
