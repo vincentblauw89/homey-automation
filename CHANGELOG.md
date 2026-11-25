@@ -2,6 +2,22 @@
 
 All notable changes to the Homey production automation are documented here.
 
+## Eurom Werkkamers Controller - 1.3.1 - 2026-11-25
+
+### Fixed
+
+- Convectoren gingen na uitzetten steeds vanzelf weer aan: na handmatig uit,
+  na de failsafe om 17:00/21:00 en na het einde van de ochtendverwarming (05:50).
+  Oorzaak: het script zette direct na het uitzetten het oude setpoint terug, en
+  een setpoint-wijziging zet de Eurom weer aan. De volgende run zag een
+  convector die aan stond en startte een nieuwe sessie (ook het
+  infraroodpaneel ging dan weer aan).
+- Het script schrijft nooit meer een setpoint naar een convector die uit staat.
+- Zet het script de convector zelf uit (failsafe, einde ochtend), dan eerst het
+  oude setpoint terug terwijl hij nog aan staat, daarna pas uit.
+- Zet je hem zelf uit, dan wordt het oude setpoint onthouden en bij de
+  volgende start als "oud setpoint" gebruikt; de convector blijft onaangeroerd.
+
 ## Eurom Werkkamers Controller - 1.3.0 - 2026-11-25
 
 ### Added

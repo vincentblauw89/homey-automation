@@ -1,6 +1,6 @@
 /*
  * EUROM CONVECTOREN - WERKKAMER BOVEN EN BENEDEN
- * V1.3 - TIJDPROPORTIONELE PI-REGELING OP EXTERNE SENSOR (SONOFF SNZB-02P)
+ * V1.3.1 - TIJDPROPORTIONELE PI-REGELING OP EXTERNE SENSOR (SONOFF SNZB-02P)
  *        MET FAILSAFE OM 17:00 EN 21:00, OCHTENDVERWARMING BOVEN EN
  *        INFRAROOD-BOOSTER BENEDEN
  *
@@ -48,6 +48,15 @@
  *   de convector weer uit gaat.
  * - Failsafe 17:00/21:00 zet ook het paneel uit.
  *
+ * V1.3.1 FIX - "UIT IS UIT"
+ * - Het script schrijft nooit meer een setpoint naar een convector die UIT staat.
+ *   Een setpoint-wijziging zette de Eurom weer aan, waarna het script een nieuwe
+ *   sessie startte (na zelf uitzetten, na de failsafe en na de ochtend).
+ * - Zet het script de convector zelf uit (failsafe, einde ochtend), dan eerst het
+ *   oude setpoint terug terwijl hij nog aan staat, daarna pas uit.
+ * - Zet jij hem uit, dan onthoudt het script het oude setpoint en gebruikt het bij
+ *   de volgende start; de convector zelf wordt niet meer aangeraakt.
+ *
  * COMFORTTEMPERATUUR
  * - Standaard uit ROOMS[].comfort.
  * - Optioneel per kamer een getal-variabele (bijv. "Werkkamer boven doel");
@@ -90,7 +99,7 @@ const ROOMS = [
 ];
 
 const CFG = {
-  version: "1.3",
+  version: "1.3.1",
   dryRun: false,
   timeZone: "Europe/Amsterdam",
   stateKeyPrefix: "eurom-werkkamer-",   // HomeyScript global storage
@@ -241,7 +250,8 @@ function defaultState() {
     smoothedTrendPerHour: null,
     fallbackActive: false,
     boosterOn: false,
-    boosterSuppressed: false
+    boosterSuppressed: false,
+    pendingRestore: null         // V1.3.1: oud setpoint na handmatig uit, voor de volgende sessie
   };
 }
 function loadState(room) {
@@ -261,6 +271,7 @@ function loadState(room) {
   state.fallbackActive = raw.fallbackActive === true;
   state.boosterOn = raw.boosterOn === true;
   state.boosterSuppressed = raw.boosterSuppressed === true;
+  state.pendingRestore = Number.isFinite(Number(raw.pendingRestore)) && raw.pendingRestore !== null ? Number(raw.pendingRestore) : null;
   state.temperatureHistory = (Array.isArray(raw.temperatureHistory) ? raw.temperatureHistory : [])
     .filter(s => Number.isFinite(Number(s?.time)) && Number.isFinite(Number(s?.temperature)))
     .map(s => ({ time: Number(s.time), temperature: Number(s.temperature) }))
@@ -381,6 +392,30 @@ function markFailsafeDone(due) {
 }
 
 /* =========================================================
+ * 5B2. CONVECTOR UITZETTEN (V1.3.1)
+ * ========================================================= */
+
+/*
+ * Het script zet de convector zelf uit (failsafe, einde ochtend).
+ * Volgorde is belangrijk: eerst het oude setpoint terug terwijl de convector
+ * nog AAN staat, daarna pas uit. Een setpoint schrijven naar een convector
+ * die uit staat, zet hem bij de Eurom weer aan.
+ */
+async function turnOffHeater(room, heater, state, reason) {
+  const restore = state.active && Number.isFinite(state.userSetpoint) ? state.userSetpoint : null;
+  const currentSetpoint = Number(value(heater, "target_temperature"));
+  if (restore !== null && !(Number.isFinite(currentSetpoint) && Math.abs(currentSetpoint - restore) <= CFG.setpoint.tolerance)) {
+    try {
+      await setCapability(heater, "target_temperature", restore);
+      await wait(1000);
+    } catch (error) { log(`${room.label} | herstel setpoint vóór uitzetten mislukt: ${error.message}`); }
+  }
+  log(`${room.label} | ${reason} → convector uit`);
+  await setCapability(heater, "onoff", false);
+  state.userSetpoint = null;   // al teruggezet; niets meer schrijven als hij uit staat
+}
+
+/* =========================================================
  * 5C. OCHTENDVERWARMING
  * ========================================================= */
 
@@ -398,7 +433,7 @@ function saveMorning(room, morning) {
   if (CFG.dryRun) return;
   global.set(`${CFG.stateKeyPrefix}${room.key}-morning`, { dateKey: morning.dateKey, checked: morning.checked, active: morning.active });
 }
-async function handleMorning(room, heater, sensor) {
+async function handleMorning(room, heater, sensor, state) {
   const m = room.morning;
   const local = localClock();
   const morning = loadMorning(room, local);
@@ -433,8 +468,7 @@ async function handleMorning(room, heater, sensor) {
   /* Eindmoment (m.end): uit, alleen als het script hem aanzette */
   if (morning.active && (inWindow(local, m.end) || local.minutes >= timeToMinutes(m.end) + CFG.failsafe.windowMinutes)) {
     if (heaterOn) {
-      log(`${room.label} | OCHTEND ${m.end} | einde ochtendverwarming → convector uit`);
-      await setCapability(heater, "onoff", false);
+      await turnOffHeater(room, heater, state, `OCHTEND ${m.end} | einde ochtendverwarming`);
       heaterOn = false;
     }
     morning.active = false;
@@ -495,7 +529,7 @@ async function controlRoom(room, devices, logic, failsafe) {
   const state = loadState(room);
   const panel = room.booster ? devices[room.booster.device] || null : null;
   if (room.booster && !panel) log(`${room.label} | WAARSCHUWING | infraroodpaneel niet gevonden; booster overgeslagen`);
-  const morning = room.morning ? await handleMorning(room, heater, sensor) : null;
+  const morning = room.morning ? await handleMorning(room, heater, sensor, state) : null;
   let heaterOn = value(heater, "onoff") === true;
   let failsafeOff = false;
 
@@ -508,28 +542,26 @@ async function controlRoom(room, devices, logic, failsafe) {
 
   /* --- Failsafe: om 17:00 / 21:00 uitschakelen --- */
   if (failsafe && heaterOn) {
-    log(`${room.label} | FAILSAFE ${failsafe.time} (lokaal ${failsafe.local.text}) → convector uit`);
-    await setCapability(heater, "onoff", false);
+    await turnOffHeater(room, heater, state, `FAILSAFE ${failsafe.time} (lokaal ${failsafe.local.text})`);
     heaterOn = false;
     failsafeOff = true;
     if (!state.active) await timeline(room.label, `🕔 failsafe ${failsafe.time}; convector uitgezet`);
   }
   const currentSetpoint = Number(value(heater, "target_temperature"));
 
-  /* --- Uit: regeling stoppen en oud setpoint terugzetten --- */
+  /* --- Uit: regeling stoppen. NOOIT een setpoint schrijven naar een convector die uit staat --- */
   if (!heaterOn) {
     if (state.active) {
       if (state.boosterOn) {
         try { await boosterOff(room, panel, state, "convector uit"); }
         catch (error) { log(`${room.label} | booster uitzetten mislukt: ${error.message}`); }
       }
-      const restore = Number.isFinite(state.userSetpoint) ? state.userSetpoint : null;
-      log(`${room.label} | convector UIT → regeling gestopt${restore !== null ? `; setpoint terug naar ${restore} °C` : ""}`);
-      if (restore !== null && Math.abs(currentSetpoint - restore) > CFG.setpoint.tolerance) {
-        try { await setCapability(heater, "target_temperature", restore); }
-        catch (error) { log(`${room.label} | herstel setpoint mislukt: ${error.message}`); }
-      }
-      saveState(room, defaultState());
+      /* Handmatig uit: oud setpoint onthouden voor de volgende sessie (niet schrijven) */
+      const pending = Number.isFinite(state.userSetpoint) &&
+        !(Number.isFinite(currentSetpoint) && Math.abs(currentSetpoint - state.userSetpoint) <= CFG.setpoint.tolerance)
+        ? state.userSetpoint : null;
+      log(`${room.label} | convector UIT → regeling gestopt${pending !== null ? `; oud setpoint ${pending} °C bewaard voor volgende start` : ""}`);
+      saveState(room, { ...defaultState(), pendingRestore: pending });
       await timeline(room.label, failsafeOff
         ? `🕔 failsafe ${failsafe.time}; convector uitgezet, regeling gestopt`
         : morning?.endedNow
@@ -550,10 +582,16 @@ async function controlRoom(room, devices, logic, failsafe) {
 
   /* --- Aan: activeren bij eerste run --- */
   if (!state.active) {
+    /* Staat het setpoint nog op een scriptwaarde (pauze of warmen), gebruik dan het bewaarde oude setpoint */
+    const scriptValue = Number.isFinite(currentSetpoint) &&
+      [CFG.setpoint.idle, heatSetpoint(comfort), heatSetpoint(baseComfort)].some(v => Math.abs(currentSetpoint - v) <= CFG.setpoint.tolerance);
+    const userSetpoint = scriptValue && Number.isFinite(state.pendingRestore)
+      ? state.pendingRestore
+      : (Number.isFinite(currentSetpoint) ? currentSetpoint : null);
     Object.assign(state, defaultState(), {
       active: true,
       activatedAt: now(),
-      userSetpoint: Number.isFinite(currentSetpoint) ? currentSetpoint : null,
+      userSetpoint,
       integral: CFG.pi.warmStartIntegral
     });
     log(`${room.label} | convector AAN → slimme regeling actief | doel ${fmt(comfort)} °C | oud setpoint ${fmt(currentSetpoint, 0)} °C`);
