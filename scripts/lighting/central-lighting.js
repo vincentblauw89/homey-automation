@@ -1,6 +1,6 @@
 /**
  * ============================================================
- * CENTRALE VERLICHTING V11.3
+ * CENTRALE VERLICHTING V11.4
  * ============================================================
  *
  * FUNCTIES
@@ -21,6 +21,19 @@
  * HomeyScript ondersteunt geen setTimeout().
  * Daarom gebruiken we _.delay().
  *
+ * V11.4
+ * -----
+ * - Thuiskomst via het Nuki-slot (argument "arrival"): wordt de
+ *   voordeur ontgrendeld terwijl Homey nog denkt dat niemand thuis
+ *   is, dan gaat de verlichting meteen naar de normale stand.
+ *   Smart Presence (wifi) ziet je vaak pas 30 s tot enkele minuten
+ *   later. De aangenomen aanwezigheid geldt maximaal 10 minuten,
+ *   of tot Homey je echt als thuis ziet. Komt die bevestiging niet,
+ *   dan gaat de volgende run terug naar de afwezigheidsstand.
+ * - Bij Vakantie of als er al iemand thuis is doet "arrival" niets
+ *   extra's; weggaan (ontgrendelen terwijl je nog thuis bent)
+ *   verandert dus niets.
+ *
  * V11.3
  * -----
  * - Killswitch werkt nu ook als niemand thuis is: de normale
@@ -32,6 +45,7 @@
  * ----------
  * geen argument  -> evaluate
  * evaluate
+ * arrival       -> voordeur ontgrendeld (Nuki)
  * vacation_on
  * vacation_off
  * status
@@ -48,7 +62,7 @@
 const CONFIG = {
 
 
-  VERSION: 11.3,
+  VERSION: 11.4,
 
 
   DEBUG: true,
@@ -63,6 +77,14 @@ const CONFIG = {
 
   FORCE_REFRESH_AFTER_MS:
     30 * 60 * 1000,
+
+
+  /*
+   * Thuiskomst via het slot: zo lang geldt het huis als bewoond
+   * totdat Homey-aanwezigheid het bevestigt.
+   */
+  ARRIVAL_HOLD_MINUTES:
+    10,
 
 
   STATE_VARIABLE_ID:
@@ -370,6 +392,10 @@ function createEmptyState() {
 
 
     vacationLighting:
+      null,
+
+
+    arrivalUntil:
       null,
 
 
@@ -933,6 +959,11 @@ function normalizeState(
 
     vacationLighting:
       parsed?.vacationLighting ||
+      null,
+
+
+    arrivalUntil:
+      parsed?.arrivalUntil ||
       null,
 
 
@@ -3717,6 +3748,203 @@ async function regulateAway(
 // ============================================================
 
 
+// ============================================================
+// THUISKOMST (V11.4)
+// ============================================================
+
+
+function localTimeText(
+  ms
+) {
+
+
+  return new Date(ms)
+    .toLocaleTimeString(
+      'nl-NL',
+      {
+        timeZone:
+          'Europe/Amsterdam',
+
+        hour:
+          '2-digit',
+
+        minute:
+          '2-digit'
+      }
+    );
+}
+
+
+
+/**
+ * Verwerkt het argument "arrival" en een eerder aangenomen
+ * thuiskomst. Past context.presence aan zolang de thuiskomst
+ * geldt. Geeft true als de aanwezigheid deze run is aangenomen.
+ */
+function applyArrival(
+  context
+) {
+
+
+  const now =
+    Date.now();
+
+
+  const presence =
+    context.presence;
+
+
+  let until =
+    Date.parse(
+      scriptState.arrivalUntil || ''
+    );
+
+
+  if (
+    !Number.isFinite(until)
+  ) {
+
+    until =
+      null;
+  }
+
+
+
+  if (
+    eventName === 'arrival'
+  ) {
+
+
+    if (
+      context.vacation
+    ) {
+
+      hold(
+        'ARRIVAL | Vakantie actief; vakantieregeling blijft leidend'
+      );
+
+      scriptState.arrivalUntil =
+        null;
+
+      return false;
+    }
+
+
+    if (
+      presence.anyoneHome
+    ) {
+
+      info(
+        'ARRIVAL | er is al iemand thuis; normale regeling'
+      );
+
+      scriptState.arrivalUntil =
+        null;
+
+      return false;
+    }
+
+
+    until =
+      now +
+      CONFIG.ARRIVAL_HOLD_MINUTES * 60000;
+
+
+    scriptState.arrivalUntil =
+      new Date(until)
+        .toISOString();
+
+
+    info(
+      `ARRIVAL | voordeur ontgrendeld; aanwezigheid aangenomen ` +
+      `tot ${localTimeText(until)}`
+    );
+
+
+    addTimelineItem(
+      `🔑 Thuiskomst (slot)`
+    );
+
+  } else if (
+    until !== null
+  ) {
+
+
+    if (
+      presence.available &&
+      presence.anyoneHome
+    ) {
+
+      info(
+        'ARRIVAL | bevestigd door aanwezigheid'
+      );
+
+      scriptState.arrivalUntil =
+        null;
+
+      return false;
+    }
+
+
+    if (
+      now >= until ||
+      context.vacation
+    ) {
+
+      info(
+        'ARRIVAL | verlopen zonder bevestiging; ' +
+        'terug naar normale aanwezigheid'
+      );
+
+      scriptState.arrivalUntil =
+        null;
+
+      return false;
+    }
+  }
+
+
+
+  if (
+    until === null ||
+    now >= until
+  ) {
+
+    return false;
+  }
+
+
+
+  context.presence = {
+
+    ...presence,
+
+    anyoneHome:
+      true,
+
+    noOneHome:
+      false,
+
+    assumedArrival:
+      true
+  };
+
+
+  if (
+    eventName !== 'arrival'
+  ) {
+
+    info(
+      `ARRIVAL | aanwezigheid aangenomen tot ${localTimeText(until)}`
+    );
+  }
+
+
+  return true;
+}
+
+
+
 async function buildContext() {
 
 
@@ -4087,11 +4315,19 @@ async function main() {
 
 
 
+  const arrivalAssumed =
+    applyArrival(
+      context
+    );
+
+
+
   info(
     `PRESENCE | ` +
     `Iemand thuis=${context.presence.anyoneHome} | ` +
     `Aantal=${context.presence.count ?? 'onbekend'} | ` +
-    `Bron beschikbaar=${context.presence.available}`
+    `Bron beschikbaar=${context.presence.available} | ` +
+    `Thuiskomst aangenomen=${arrivalAssumed}`
   );
 
 
@@ -4343,6 +4579,13 @@ async function main() {
 
       anyoneHome:
         context.presence.anyoneHome,
+
+
+      arrivalAssumed,
+
+
+      arrivalUntil:
+        scriptState.arrivalUntil,
 
 
       personsHome:

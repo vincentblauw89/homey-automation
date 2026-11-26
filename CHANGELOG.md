@@ -2,6 +2,24 @@
 
 All notable changes to the Homey production automation are documented here.
 
+## Central Lighting Controller - 11.4.0 - 2026-11-26
+
+### Added
+
+- Thuiskomst via het Nuki-slot: nieuw scriptargument `arrival`. Wordt de
+  voordeur ontgrendeld terwijl Homey nog denkt dat niemand thuis is, dan gaat
+  de verlichting direct naar de normale stand in plaats van te wachten op
+  Smart Presence (wifi), die vaak 30 s tot enkele minuten later reageert.
+- De aangenomen aanwezigheid geldt maximaal 10 minuten of tot Homey-aanwezigheid
+  het bevestigt; zonder bevestiging gaat de volgende run terug naar afwezig.
+- Bij Vakantie of als er al iemand thuis is doet `arrival` niets extra's.
+- Timeline-item "🔑 Thuiskomst (slot)".
+
+### Requires
+
+- Flow: Nuki Smart Lock ontgrendeld → HomeyScript centrale verlichting met
+  argument `arrival`, plus na 11 minuten nog een gewone run (`evaluate`).
+
 ## Airzone Controller - 2.4.0 - 2026-11-26
 
 ### Added
