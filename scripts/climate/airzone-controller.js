@@ -1,6 +1,6 @@
 /**
  * ============================================================
- * AIRZONE BOVEN V2.3
+ * AIRZONE BOVEN V2.4
  * FAST-PATH CONTROLLER MET EUROPE/AMSTERDAM TIMEZONE
  * ============================================================
  *
@@ -57,13 +57,16 @@
  * - Timeline via Airzone Timeline bericht
  * - Alleen betekenisvolle acties
  *
- * HANDMATIGE OVERRIDE (V2.3, alleen winter)
+ * HANDMATIGE OVERRIDE (V2.4, alleen winter, dag en nacht)
  *
- * - Zet je een zone buiten zijn programma zelf aan
- *   (thermostaat of Airzone-app), dan laat het script
- *   die zone volledig met rust
- * - Master, Abel en Hugo: tot 18:00
- * - Badkamer: tot 06:00 of 18:00, wat het eerst komt
+ * - Zet je een zone zelf aan (thermostaat of Airzone-app),
+ *   of verander je het doel van een zone die aan staat met
+ *   minstens 0,5 °C, dan laat het script die zone volledig
+ *   met rust tot het eerstvolgende schakelmoment:
+ * - Master: 18:00 of 06:00
+ * - Abel en Hugo: 18:00 of 07:30
+ * - Badkamer: 18:00, 21:30, 06:00 of 07:30
+ * - Voorbeeld: om 02:00 Abel op 19 °C gezet -> tot 07:30
  * - Zet je de zone zelf weer uit, dan stopt de override direct
  * - Vakantie en zomer beëindigen alle overrides
  * - Vereist tekstvariabele "Airzone override state"
@@ -86,7 +89,7 @@
 const CONFIG = {
 
     version:
-        '2.3',
+        '2.4',
 
     timezone:
         'Europe/Amsterdam',
@@ -2933,13 +2936,17 @@ async function preparePushMessage(
  * Werking:
  *
  * - Na iedere run onthoudt het script per zone of die aan of
- *   uit stond (lastOn).
- * - Staat een zone nu aan, terwijl het script hem de vorige run
- *   uit liet en het programma van die zone niet actief is, dan
- *   heeft iemand hem handmatig aangezet: override.
+ *   uit stond (lastOn) en welk doel er stond (lastTarget).
+ * - Staat een zone nu aan terwijl het script hem de vorige run
+ *   uit liet, dan heeft iemand hem handmatig aangezet: override.
+ * - Staat een zone aan en is het doel sinds de vorige run met
+ *   minstens een halve graad veranderd, dan heeft iemand de
+ *   temperatuur aangepast: ook override. Zo kun je 's avonds en
+ *   's nachts warmer zetten zonder dat het script hem uitzet.
  * - Tijdens een override slaat het script de zone volledig over.
- * - De override stopt zodra het programma van de zone start,
- *   de zone weer uit staat of de maximale duur is bereikt.
+ * - De override stopt op het eerstvolgende schakelmoment van de
+ *   zone (zie OVERRIDE_BOUNDARIES), als de zone weer uit staat
+ *   of als de maximale duur is bereikt.
  */
 
 const OVERRIDE_ZONES = [
@@ -2950,41 +2957,101 @@ const OVERRIDE_ZONES = [
 ];
 
 
-function isZoneProgramActive(label) {
+/*
+ * Minimale wijziging van het doel die als handmatige
+ * aanpassing telt. Airzone stapt per 0,5 °C.
+ */
+const OVERRIDE_TARGET_DELTA =
+    0.4;
+
+
+/**
+ * Schakelmomenten per zone. Een override loopt tot het
+ * eerstvolgende moment na de start.
+ *
+ * Master:   18:00 (start), 06:00 (einde)
+ * Abel/Hugo: 18:00 (start), 07:30 (einde)
+ * Badkamer: 18:00, 21:30 (nacht), 06:00 (ochtend), 07:30 (einde)
+ */
+function overrideBoundaries(label) {
+
+    const winter =
+        CONFIG.winter;
 
     switch (label) {
 
         case 'Master':
-            return isMasterWinterWindowActive();
+            return [
+                winter.master.activeFrom,
+                winter.master.activeUntil
+            ];
 
         case 'Abel':
         case 'Hugo':
-            return isBedroomWindowActive();
+            return [
+                winter.bedrooms.activeFrom,
+                winter.bedrooms.activeUntil
+            ];
 
         case 'Badkamer':
-            return isBathroomWindowActive();
+            return [
+                winter.bathroom.eveningFrom,
+                winter.bathroom.eveningUntil,
+                winter.bathroom.morningTargetTime,
+                winter.bathroom.morningUntil
+            ];
 
         default:
-            return true;
+            return [
+                '18:00'
+            ];
     }
 }
 
 
-function overrideEndText(label) {
+/**
+ * Eerstvolgend schakelmoment na `date`, als tijdstip (ms)
+ * en als tekst (HH:MM, Nederlandse tijd).
+ */
+function nextOverrideEnd(
+    label,
+    date = new Date()
+) {
 
-    if (label === 'Badkamer') {
+    const clock =
+        getLocalClock(date);
 
-        return (
-            `${CONFIG.winter.bathroom.morningTargetTime} of ` +
-            `${CONFIG.winter.bathroom.eveningFrom}`
-        );
+    let best =
+        null;
+
+    for (const time of overrideBoundaries(label)) {
+
+        const minutes =
+            minutesUntilLocalTime(
+                time,
+                date
+            );
+
+        if (
+            !best ||
+            minutes < best.minutes
+        ) {
+            best = {
+                minutes,
+                time
+            };
+        }
     }
 
-    if (label === 'Master') {
-        return CONFIG.winter.master.activeFrom;
-    }
+    return {
+        endsAt:
+            date.getTime() +
+            best.minutes * 60000 -
+            clock.second * 1000,
 
-    return CONFIG.winter.bedrooms.activeFrom;
+        endText:
+            best.time
+    };
 }
 
 
@@ -2992,6 +3059,9 @@ function emptyOverrideZone() {
 
     return {
         lastOn:
+            null,
+
+        lastTarget:
             null,
 
         override:
@@ -3036,6 +3106,12 @@ function parseOverrideData(raw) {
             zone.lastOn = input.lastOn;
         }
 
+        if (
+            validTemperature(input?.lastTarget)
+        ) {
+            zone.lastTarget = Number(input.lastTarget);
+        }
+
         const startedAt =
             Number(input?.override?.startedAt);
 
@@ -3043,8 +3119,40 @@ function parseOverrideData(raw) {
             Number.isFinite(startedAt) &&
             startedAt > 0
         ) {
+
+            let endsAt =
+                Number(input.override.endsAt);
+
+            let endText =
+                input.override.endText;
+
+            /*
+             * Overrides uit V2.3 hebben nog geen eindtijd:
+             * eindtijd afleiden van het startmoment.
+             */
+            if (
+                !Number.isFinite(endsAt) ||
+                endsAt <= 0 ||
+                typeof endText !== 'string'
+            ) {
+                const end =
+                    nextOverrideEnd(
+                        label,
+                        new Date(startedAt)
+                    );
+
+                endsAt = end.endsAt;
+                endText = end.endText;
+            }
+
             zone.override = {
-                startedAt
+                startedAt,
+                endsAt,
+                endText,
+                reason:
+                    typeof input.override.reason === 'string'
+                        ? input.override.reason
+                        : 'aangezet'
             };
         }
 
@@ -3138,6 +3246,36 @@ function endOverride(
 }
 
 
+function startOverride(
+    label,
+    zone,
+    reason,
+    detail
+) {
+
+    const end =
+        nextOverrideEnd(label);
+
+    zone.override = {
+        startedAt:
+            Date.now(),
+
+        endsAt:
+            end.endsAt,
+
+        endText:
+            end.endText,
+
+        reason
+    };
+
+    addTimelineEvent(
+        `✋ ${label} handmatig ${detail}; ` +
+        `override tot ${end.endText}`
+    );
+}
+
+
 /**
  * Geeft true als de zone deze run overgeslagen moet worden.
  */
@@ -3166,8 +3304,11 @@ function checkOverride(
             'onoff'
         ) === true;
 
-    const programActive =
-        isZoneProgramActive(label);
+    const target =
+        capabilityValue(
+            device,
+            'target_temperature'
+        );
 
     if (zone.override) {
 
@@ -3175,12 +3316,12 @@ function checkOverride(
             (Date.now() - zone.override.startedAt) /
             3600000;
 
-        if (programActive) {
+        if (Date.now() >= zone.override.endsAt) {
 
             endOverride(
                 label,
                 zone,
-                'programma neemt het over'
+                `${zone.override.endText} bereikt; programma neemt het over`
             );
 
             return false;
@@ -3212,27 +3353,43 @@ function checkOverride(
             `${label} | OVERRIDE actief sinds ` +
             `${hours.toFixed(1)} uur | ` +
             `${formatTemp(capabilityValue(device, 'measure_temperature'))} | ` +
-            `doel=${formatTemp(capabilityValue(device, 'target_temperature'))} | ` +
-            `script blijft eraf tot ${overrideEndText(label)}`
+            `doel=${formatTemp(target)} | ` +
+            `script blijft eraf tot ${zone.override.endText}`
+        );
+
+        return true;
+    }
+
+    if (!isOn) {
+        return false;
+    }
+
+    if (zone.lastOn === false) {
+
+        startOverride(
+            label,
+            zone,
+            'aangezet',
+            `aangezet (doel ${formatTemp(target)})`
         );
 
         return true;
     }
 
     if (
-        isOn &&
-        !programActive &&
-        zone.lastOn === false
+        zone.lastOn === true &&
+        validTemperature(target) &&
+        validTemperature(zone.lastTarget) &&
+        Math.abs(target - zone.lastTarget) >=
+            OVERRIDE_TARGET_DELTA
     ) {
 
-        zone.override = {
-            startedAt:
-                Date.now()
-        };
-
-        addTimelineEvent(
-            `✋ ${label} handmatig aangezet; ` +
-            `override tot ${overrideEndText(label)}`
+        startOverride(
+            label,
+            zone,
+            'doel aangepast',
+            `op ${formatTemp(target)} gezet ` +
+            `(was ${formatTemp(zone.lastTarget)})`
         );
 
         return true;
@@ -3264,6 +3421,17 @@ function recordZoneState(
             device,
             'onoff'
         ) === true;
+
+    const target =
+        capabilityValue(
+            device,
+            'target_temperature'
+        );
+
+    state.data.zones[label].lastTarget =
+        validTemperature(target)
+            ? Number(target)
+            : null;
 }
 
 
@@ -3296,6 +3464,9 @@ function resetOverrides(
         }
 
         zone.lastOn =
+            null;
+
+        zone.lastTarget =
             null;
     }
 }

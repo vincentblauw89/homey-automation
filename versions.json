@@ -1,7 +1,7 @@
 {
   "repository": "homey-automation",
   "environment": "production",
-  "updated": "2026-11-25",
+  "updated": "2026-11-26",
   "components": {
     "sensibo": {
       "name": "Sensibo Climate Controller",
@@ -10,7 +10,7 @@
     },
     "airzone": {
       "name": "Airzone Controller",
-      "version": "2.3.0",
+      "version": "2.4.0",
       "path": "scripts/climate/airzone-controller.js"
     },
     "euromWerkkamers": {
