@@ -7,7 +7,7 @@ Version-controlled production automation for Homey Pro.
 | Controller | Version | Status |
 |---|---:|---|
 | Sensibo Climate Controller | 14.3.0 | Production |
-| Airzone Controller | 2.3.0 | Production |
+| Airzone Controller | 2.4.0 | Production |
 | Eurom Werkkamers Controller | 1.3.1 | Production |
 | Central Lighting Controller | 11.3.0 | Production |
 

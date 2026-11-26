@@ -2,6 +2,26 @@
 
 All notable changes to the Homey production automation are documented here.
 
+## Airzone Controller - 2.4.0 - 2026-11-26
+
+### Added
+
+- Override ook 's avonds en 's nachts, tijdens het programma van een zone.
+  Verander je het doel van een zone die aan staat met minstens 0,5 °C, of zet
+  je een zone aan die het script uit liet, dan blijft het script van die zone
+  af. Zo kun je 's nachts warmer zetten zonder dat het script de zone bij
+  17,2 °C uitzet of het doel terugzet naar 17 °C.
+
+### Changed
+
+- Een override loopt nu tot het eerstvolgende schakelmoment van de zone:
+  Master 18:00/06:00, Abel en Hugo 18:00/07:30, Badkamer 18:00/21:30/06:00/07:30.
+  Overdag gedraagt het zich dus als in 2.3 (tot 18:00, badkamer 's nachts tot
+  06:00).
+- Timeline-melding noemt het nieuwe doel en de eindtijd, bijvoorbeeld
+  "Abel handmatig op 19.0 °C gezet (was 17.0 °C); override tot 07:30".
+- Lopende overrides uit 2.3 worden automatisch overgenomen.
+
 ## Eurom Werkkamers Controller - 1.3.1 - 2026-11-25
 
 ### Fixed
